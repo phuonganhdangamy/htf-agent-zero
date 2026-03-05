@@ -18,9 +18,10 @@ export default function OmniAgentPanel() {
         setLoading(true);
 
         try {
-            const response = await axios.post('http://localhost:8000/api/agent/analyze', {
+            const response = await axios.post('http://localhost:8000/api/agent/run', {
                 company_id: 'C-001',
-                trigger_context: userMsg
+                trigger: userMsg,
+                context: {}
             });
 
             setMessages(prev => [...prev, {
@@ -61,8 +62,8 @@ export default function OmniAgentPanel() {
                             )}
 
                             <div className={`px-5 py-3.5 rounded-2xl max-w-[80%] text-sm ${m.role === 'user'
-                                    ? 'bg-blue-600 text-white rounded-tr-sm'
-                                    : 'bg-white border border-slate-200 text-slate-700 shadow-sm rounded-tl-sm'
+                                ? 'bg-blue-600 text-white rounded-tr-sm'
+                                : 'bg-white border border-slate-200 text-slate-700 shadow-sm rounded-tl-sm'
                                 }`}>
                                 {m.content.split('\n').map((line, i) => (
                                     <p key={i} className={line ? 'mb-2' : 'mb-4'}>{line}</p>
