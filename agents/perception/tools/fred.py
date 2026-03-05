@@ -1,0 +1,61 @@
+import os
+import json
+import requests
+from google.adk.tools import FunctionTool
+
+@FunctionTool
+def fetch_macro_signals(indicators: list) -> str:
+    """
+    Fetches macroeconomic signals (like interest rates or inflation) from FRED.
+    Requires FRED_API_KEY.
+    """
+    api_key = os.environ.get("FRED_API_KEY")
+    if not api_key:
+        return json.dumps([{"error": "FRED_API_KEY missing in environment variables."}])
+        
+    url = "https://api.stlouisfed.org/fred/series/observations"
+    events = []
+    
+    # Map common indicators to FRED series IDs
+    series_map = {
+        "interest": "FEDFUNDS",
+        "inflation": "CPIAUCSL",
+        "unemployment": "UNRATE",
+        "gdp": "GDP"
+    }
+    
+    try:
+        found_indicators = []
+        for ind in indicators:
+            for k, v in series_map.items():
+                if k in ind.lower() and v not in found_indicators:
+                    found_indicators.append(v)
+                    
+        if not found_indicators:
+            found_indicators = ["FEDFUNDS"] # default
+            
+        for series_id in found_indicators:
+            params = {
+                "series_id": series_id,
+                "api_key": api_key,
+                "file_type": "json",
+                "limit": 1,
+                "sort_order": "desc"
+            }
+            
+            res = requests.get(url, params=params, timeout=10)
+            res.raise_for_status()
+            data = res.json()
+            
+            observations = data.get("observations", [])
+            if observations:
+                latest = observations[0]
+                events.append({
+                    "title": f"Latest FRED {series_id} Data: {latest.get('value')}",
+                    "description": f"Macroeconomic indicator {series_id} is at {latest.get('value')} on {latest.get('date')}",
+                    "source": "FRED",
+                    "severity": "Low"
+                })
+        return json.dumps(events)
+    except Exception as e:
+        return json.dumps([{"error": f"FRED API error: {str(e)}"}])

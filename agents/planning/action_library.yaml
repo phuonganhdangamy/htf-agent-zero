@@ -1,0 +1,56 @@
+actions:
+  REROUTE_SHIPMENT:
+    category: logistics
+    prerequisites: ["alternative_route_available", "transport_capacity_available"]
+    estimated_cost_multiplier: 1.2
+    expected_risk_reduction_pct: 60
+    description: "Re-route an existing shipment through an alternative port or lane."
+
+  EXPEDITE_AIR_FREIGHT:
+    category: logistics
+    prerequisites: ["air_capacity_available", "budget_approved"]
+    estimated_cost_multiplier: 3.5
+    expected_risk_reduction_pct: 90
+    description: "Upgrade ocean or rail freight to air freight to avoid delays."
+
+  ACTIVATE_BACKUP_SUPPLIER:
+    category: sourcing
+    prerequisites: ["backup_supplier_contracted", "backup_capacity_available"]
+    estimated_cost_multiplier: 1.15
+    expected_risk_reduction_pct: 85
+    description: "Shift purchase orders to a pre-approved secondary supplier."
+
+  INCREASE_SAFETY_STOCK:
+    category: inventory
+    prerequisites: ["warehouse_space_available", "cash_flow_approved"]
+    estimated_cost_multiplier: 1.05
+    expected_risk_reduction_pct: 40
+    description: "Order additional inventory to increase buffer days."
+
+  REALLOCATE_INVENTORY:
+    category: inventory
+    prerequisites: ["inventory_available_other_dc"]
+    estimated_cost_multiplier: 1.1
+    expected_risk_reduction_pct: 50
+    description: "Move existing inventory from a safe facility to the at-risk facility."
+
+  ADJUST_PRODUCTION_SCHEDULE:
+    category: manufacturing
+    prerequisites: ["flexible_bom" ]
+    estimated_cost_multiplier: 1.0
+    expected_risk_reduction_pct: 30
+    description: "Shift production runs to prioritize units not affected by the shortage."
+
+  DUAL_SOURCE_SUPPLIER:
+    category: sourcing
+    prerequisites: ["alternative_supplier_identified"]
+    estimated_cost_multiplier: 1.2
+    expected_risk_reduction_pct: 70
+    description: "Split future POs between primary and secondary suppliers."
+
+  SUBSTITUTE_MATERIAL:
+    category: engineering
+    prerequisites: ["engineering_approved_substitute"]
+    estimated_cost_multiplier: 1.0
+    expected_risk_reduction_pct: 80
+    description: "Use an alternative material or component in the BOM."

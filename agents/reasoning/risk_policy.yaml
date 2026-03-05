@@ -1,0 +1,55 @@
+severity_models:
+  earthquake: 
+    description: "Seismic events causing structural damage"
+    default_severity: 0.8
+  cyclone:
+    description: "Severe storms including hurricanes/typhoons"
+    default_severity: 0.7
+  flood:
+    description: "Inundation of facilities or routes"
+    default_severity: 0.6
+  wildfire:
+    description: "Uncontrolled fires"
+    default_severity: 0.6
+  cyber_or_internet_outage:
+    description: "Digital infrastructure failure"
+    default_severity: 0.5
+  trade_or_tariff_change:
+    description: "Geopolitical trade barriers"
+    default_severity: 0.4
+  conflict:
+    description: "Armed conflict or severe protests"
+    default_severity: 0.9
+
+geo_impact:
+  exp_decay: true
+  radius_km: 200
+
+risk_model:
+  probability:
+    confidence_weight: 0.35
+    severity_local_weight: 0.45
+    source_trust_weight: 0.20
+  exposure:
+    criticality_weight: 0.40
+    single_source_weight: 0.30
+    share_percent_weight: 0.30
+  impact:
+    inventory_risk_weight: 0.50
+    product_priority_weight: 0.30
+    margin_weight: 0.20
+
+thresholds:
+  elevated: 40
+  high: 60
+  critical: 80
+
+source_trust:
+  gdacs: 0.95
+  acled: 0.90
+  firms: 0.85
+  gdelt: 0.70
+  alphavantage: 0.85
+
+recency:
+  half_life_hours: 48

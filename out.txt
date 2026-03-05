@@ -1,0 +1,2 @@
+Error starting agent pipeline: FunctionTool.__init__() missing 1 required positional argument: 'func'
+RESULT: {'status': 'error', 'message': "FunctionTool.__init__() missing 1 required positional argument: 'func'"}
