@@ -1,0 +1,8 @@
+src/components/layout/Topbar.tsx(1,24): error TS6133: 'Moon' is declared but its value is never read.
+src/components/layout/Topbar.tsx(1,35): error TS6133: 'UserCircle' is declared but its value is never read.
+src/pages/CaseDetail.tsx(4,10): error TS2305: Module '"../types"' has no exported member 'CaseDetail'.
+src/pages/CaseDetail.tsx(4,24): error TS6133: 'CaseDetailType' is declared but its value is never read.
+src/pages/CaseDetail.tsx(4,40): error TS1484: 'ChangeProposal' is a type and must be imported using a type-only import when 'verbatimModuleSyntax' is enabled.
+src/pages/CaseDetail.tsx(5,50): error TS6133: 'Save' is declared but its value is never read.
+src/pages/RiskCases.tsx(94,48): error TS2339: Property 'expected_loss_prevented' does not exist on type 'RiskCase'.
+src/pages/RiskCases.tsx(94,81): error TS2339: Property 'expected_loss_prevented' does not exist on type 'RiskCase'.
