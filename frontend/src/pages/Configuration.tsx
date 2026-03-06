@@ -14,6 +14,10 @@ interface MemoryPreferences {
     cost_cap_usd?: number;
     fill_rate_target?: number;
     notification_threshold?: number;
+    lead_time_sensitivity?: string;
+    supplier_concentration_threshold?: number;
+    contract_structures?: string[];
+    customer_slas?: { customer: string; sla_days: number }[];
   };
 }
 
@@ -51,7 +55,13 @@ export default function Configuration() {
     cost_cap: 50000,
     fill_rate_target: 0.95,
     notification_threshold: 60,
+    lead_time_sensitivity: 'medium',
+    supplier_concentration_threshold: 0.5,
+    contract_structures: [] as string[],
+    customer_slas: [] as { customer: string; sla_days: number }[],
   });
+  const [newSlaCustomer, setNewSlaCustomer] = useState('');
+  const [newSlaDays, setNewSlaDays] = useState(7);
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [suppliersLoading, setSuppliersLoading] = useState(true);
@@ -96,6 +106,10 @@ export default function Configuration() {
           cost_cap: obj.cost_cap ?? obj.cost_cap_usd ?? 50000,
           fill_rate_target: obj.fill_rate_target ?? 0.95,
           notification_threshold: obj.notification_threshold ?? 60,
+          lead_time_sensitivity: obj.lead_time_sensitivity ?? 'medium',
+          supplier_concentration_threshold: obj.supplier_concentration_threshold ?? 0.5,
+          contract_structures: obj.contract_structures ?? [],
+          customer_slas: obj.customer_slas ?? [],
         });
       } catch (e) {
         console.error(e);
@@ -149,6 +163,10 @@ export default function Configuration() {
         cost_cap_usd: form.cost_cap,
         fill_rate_target: form.fill_rate_target,
         notification_threshold: form.notification_threshold,
+        lead_time_sensitivity: form.lead_time_sensitivity,
+        supplier_concentration_threshold: form.supplier_concentration_threshold,
+        contract_structures: form.contract_structures,
+        customer_slas: form.customer_slas,
       };
       const { error } = await supabase.from('memory_preferences').upsert(
         { org_id: DEFAULT_COMPANY_ID, objectives, last_updated: new Date().toISOString() },
@@ -278,6 +296,88 @@ export default function Configuration() {
                     onChange={(e) => setForm((f) => ({ ...f, notification_threshold: Number(e.target.value) || 0 }))}
                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
                   />
+                </div>
+                <div className="md:col-span-2 border-t border-slate-100 pt-4 mt-2">
+                  <p className="text-xs font-semibold text-blue-700 uppercase mb-3">Hyper-Personalization</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Lead-time sensitivity</label>
+                      <select
+                        value={form.lead_time_sensitivity}
+                        onChange={(e) => setForm((f) => ({ ...f, lead_time_sensitivity: e.target.value }))}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                      >
+                        <option value="low">Low — flexible delivery windows</option>
+                        <option value="medium">Medium — standard 30-60 day lead times</option>
+                        <option value="high">High — fast-activate suppliers required</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Max supplier concentration (0–1)</label>
+                      <input
+                        type="number" step="0.05" min="0.1" max="1.0"
+                        value={form.supplier_concentration_threshold}
+                        onChange={(e) => setForm((f) => ({ ...f, supplier_concentration_threshold: Number(e.target.value) || 0.5 }))}
+                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                        placeholder="e.g. 0.4 = max 40% from one supplier"
+                      />
+                      <p className="text-xs text-slate-400 mt-1">Max share from any single supplier (e.g. 0.4 = 40%)</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Preferred contract structures</label>
+                      <div className="flex flex-wrap gap-2">
+                        {['fixed_price', 'spot', 'consignment', 'framework'].map(opt => (
+                          <label key={opt} className="flex items-center gap-1.5 text-sm cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={form.contract_structures.includes(opt)}
+                              onChange={(e) => setForm((f) => ({
+                                ...f,
+                                contract_structures: e.target.checked
+                                  ? [...f.contract_structures, opt]
+                                  : f.contract_structures.filter(c => c !== opt),
+                              }))}
+                            />
+                            {opt.replace('_', ' ')}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Customer SLAs</label>
+                      <div className="space-y-1 mb-2">
+                        {form.customer_slas.map((sla, i) => (
+                          <div key={i} className="flex items-center gap-2 text-sm">
+                            <span className="flex-1 font-medium">{sla.customer}</span>
+                            <span className="text-slate-500">{sla.sla_days}d</span>
+                            <button onClick={() => setForm((f) => ({ ...f, customer_slas: f.customer_slas.filter((_, j) => j !== i) }))} className="text-red-400 hover:text-red-600 text-xs">✕</button>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text" placeholder="Customer name"
+                          value={newSlaCustomer}
+                          onChange={(e) => setNewSlaCustomer(e.target.value)}
+                          className="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-xs"
+                        />
+                        <input
+                          type="number" placeholder="Days" min={1} max={365}
+                          value={newSlaDays}
+                          onChange={(e) => setNewSlaDays(Number(e.target.value) || 7)}
+                          className="w-16 border border-slate-200 rounded-lg px-2 py-1.5 text-xs"
+                        />
+                        <button
+                          onClick={() => {
+                            if (!newSlaCustomer.trim()) return;
+                            setForm((f) => ({ ...f, customer_slas: [...f.customer_slas, { customer: newSlaCustomer.trim(), sla_days: newSlaDays }] }));
+                            setNewSlaCustomer(''); setNewSlaDays(7);
+                          }}
+                          className="px-2 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium"
+                        >+ Add</button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div className="flex items-end">
                   <button

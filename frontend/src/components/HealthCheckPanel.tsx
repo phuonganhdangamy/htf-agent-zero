@@ -22,7 +22,7 @@ interface HealthReport {
   checks: HealthCheck[];
 }
 
-const CATEGORY_ORDER = ['Database', 'AI Services', 'Agents'];
+const CATEGORY_ORDER = ['Database', 'AI Services', 'Agents', 'Intelligence'];
 
 const OVERALL_STYLES = {
   healthy:  { bg: 'bg-emerald-50',  border: 'border-emerald-300', text: 'text-emerald-700', dot: 'bg-emerald-500' },

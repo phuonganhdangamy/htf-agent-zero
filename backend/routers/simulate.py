@@ -226,6 +226,60 @@ def run_action(plan_options: Dict[str, Any]):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/tradeoff")
+def run_tradeoff_analysis(payload: Dict[str, Any]):
+    """
+    Generate a multi-variable trade-off analysis comparing up to 3 mitigation plans
+    across Cost, Service Level, and Resilience dimensions.
+    Returns structured data suitable for a comparison table / radar chart.
+    """
+    try:
+        snapshot = get_supply_chain_snapshot()
+        scenario = payload.get("scenario", "Generic supply chain disruption")
+        plans = payload.get("plans", [])
+
+        prompt = f"""You are a supply chain trade-off analyst.
+Scenario: {scenario}
+Supply chain context: {json.dumps(snapshot)}
+Existing plan options (may be empty — generate 3 if none provided): {json.dumps(plans)}
+
+Generate a trade-off comparison for exactly 3 mitigation plans (Plan A, Plan B, Plan C).
+Each plan should represent a different strategy: e.g., (A) aggressive/expensive, (B) balanced, (C) conservative/cheap.
+
+Output ONLY valid JSON:
+{{
+  "scenario": "{scenario}",
+  "tradeoff_matrix": [
+    {{
+      "plan_id": "PLAN_A",
+      "name": "<strategy name>",
+      "strategy_type": "aggressive",
+      "cost_usd": <number>,
+      "service_level": <0.0-1.0, probability of meeting delivery SLA>,
+      "resilience_score": <0-100, long-term supply chain robustness>,
+      "lead_time_days": <number>,
+      "risk_reduction_pct": <0-100>,
+      "actions": ["<action 1>", "<action 2>"],
+      "tradeoffs": "<1-sentence description of main trade-off>",
+      "recommended": <true/false>
+    }},
+    {{ "plan_id": "PLAN_B", ... }},
+    {{ "plan_id": "PLAN_C", ... }}
+  ],
+  "recommendation_rationale": "<why the recommended plan wins given the constraints>",
+  "key_insight": "<1 sentence on the most important trade-off decision>"
+}}"""
+
+        response = client.models.generate_content(
+            model='gemini-2.5-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type="application/json"),
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/reflection")
 def run_reflection(payload: Dict[str, Any]):
     try:

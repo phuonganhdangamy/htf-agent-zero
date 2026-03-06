@@ -159,6 +159,13 @@ async def run_risk_assessment(company_id: str, scenario_text: str, severity: int
     live_context = _build_live_context(company_id, focus_suppliers=focus_suppliers, focus_materials=focus_materials)
     prefs = live_context.get("memory_preferences") or {}
     obj = prefs.get("objectives") or {}
+
+    # Inject memory learnings from past cases
+    try:
+        from backend.services.feedback_service import build_memory_context_for_prompt
+        memory_context = build_memory_context_for_prompt(company_id)
+    except Exception:
+        memory_context = ""
     base_cap = obj.get("cost_cap_usd") or obj.get("cost_cap") or 50000
     if budget_flexibility == "flexible":
         cost_cap_override = base_cap * 2
@@ -183,11 +190,30 @@ async def run_risk_assessment(company_id: str, scenario_text: str, severity: int
         constraints.append("Timeline is tight (30 days). Prefer mitigations that can execute within 30 days.")
     constraints_text = "\n".join(constraints) if constraints else ""
 
+    # Build hyper-personalization context from memory_preferences
+    hyper_lines = []
+    lead_time_sensitivity = obj.get("lead_time_sensitivity")
+    supplier_concentration_threshold = obj.get("supplier_concentration_threshold")
+    contract_structures = obj.get("contract_structures") or []
+    customer_slas = obj.get("customer_slas") or []
+    if lead_time_sensitivity:
+        hyper_lines.append(f"Lead-time sensitivity: {lead_time_sensitivity} — {'prioritize fast-to-activate suppliers' if lead_time_sensitivity == 'high' else 'standard lead time acceptable'}")
+    if supplier_concentration_threshold:
+        hyper_lines.append(f"Supplier concentration limit: no single supplier should exceed {supplier_concentration_threshold*100:.0f}% of spend")
+    if contract_structures:
+        hyper_lines.append(f"Preferred contract structures: {', '.join(contract_structures)}")
+    if customer_slas:
+        sla_str = ", ".join(f"{s.get('customer','?')}: {s.get('sla_days','?')}d" for s in customer_slas[:3])
+        hyper_lines.append(f"Customer SLAs to protect: {sla_str}")
+    hyper_block = "\n".join(hyper_lines) if hyper_lines else ""
+
     user_content = f"""Scenario: {scenario_text}
 Severity: {severity}/100
 Urgency: {urgency}/100
 {directives_block}
 {constraints_text}
+{hyper_block}
+{memory_context}
 
 Live operational context (already filtered by focus suppliers/materials if provided):
 {json.dumps(live_context, indent=2, default=str)}"""

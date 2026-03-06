@@ -60,9 +60,21 @@ async def run_perception_scan(company_id: str = "ORG_DEMO") -> Dict[str, Any]:
     if not countries:
         countries = ["Taiwan", "Japan", "Germany", "United States", "China"]
 
-    # 2. Build prompt
+    # 1b. Try to fetch real news first
+    from backend.services.news_service import fetch_news_signals
+    real_news_events = fetch_news_signals(countries)
+    real_news_saved = _save_events_direct(real_news_events)
+    print(f"[perception] Real news events saved: {real_news_saved}")
+
+    # 2. Build prompt (ask Gemini to supplement, not duplicate)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    already_covered = [ev.get("country", "") for ev in real_news_events[:real_news_saved]]
+    supplement_note = (
+        f"Note: We already have real news events for {', '.join(set(already_covered))}. "
+        "Focus on regions and event types NOT yet covered." if already_covered else ""
+    )
     prompt = f"""You are a supply chain disruption intelligence analyst. Today is {today}.
+{supplement_note}
 
 The company monitors suppliers in these countries: {', '.join(countries)}.
 
@@ -119,10 +131,14 @@ Return only the JSON array, no other text."""
     # 5. Save to DB
     saved_count = _save_events_direct(events)
 
+    total_saved = real_news_saved + saved_count
+
     return {
         "scanned": True,
         "countries_monitored": countries,
-        "events_generated": len(events),
-        "new_events": saved_count,
-        "new_signal_events": events[:saved_count],  # only the newly saved ones
+        "events_generated": len(events) + len(real_news_events),
+        "real_news_events": real_news_saved,
+        "gemini_events": saved_count,
+        "new_events": total_saved,
+        "new_signal_events": real_news_events[:real_news_saved] + events[:saved_count],
     }

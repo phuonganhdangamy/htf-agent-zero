@@ -10,19 +10,23 @@ import {
     BarChart3,
     LayoutDashboard,
     ShieldAlert,
-    CheckSquare
+    CheckSquare,
+    Cpu,
+    Heart,
+    Brain,
+    Newspaper
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 export default function Sidebar() {
     const navItems = [
         { title: 'Dashboard', icon: LayoutDashboard, path: '/' },
-        { title: 'Organization', icon: Building2, path: '/org', badge: '1' },
-        { title: 'Tags', icon: Tags, path: '/tags', badge: '12' },
-        { title: 'Users', icon: Users, path: '/users' },
         { title: 'Events Feed', icon: Activity, path: '/events' },
         { title: 'Risk Cases', icon: ShieldAlert, path: '/cases' },
         { title: 'Actions', icon: CheckSquare, path: '/actions' },
+        { title: 'Agent Pipeline', icon: Cpu, path: '/pipeline' },
+        { title: 'Supplier Health', icon: Heart, path: '/supplier-health' },
+        { title: 'Memory & Learning', icon: Brain, path: '/memory' },
         { title: 'Activity Logs', icon: ScrollText, path: '/logs' },
         { title: 'Configuration', icon: Settings, path: '/config' },
     ];

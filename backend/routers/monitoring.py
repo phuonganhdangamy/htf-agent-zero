@@ -63,6 +63,40 @@ def mark_all_alerts_read():
     return {"status": "ok"}
 
 
+@router.post("/feedback")
+async def record_case_outcome_endpoint(
+    case_id: str,
+    outcome: str = "resolved",
+    actual_impact_usd: Optional[float] = None,
+    notes: str = "",
+    actor: str = "Administrator",
+):
+    """Record real-world outcome of a risk case to enable memory learning."""
+    from backend.services.feedback_service import record_case_outcome
+    return record_case_outcome(case_id=case_id, outcome=outcome, actual_impact_usd=actual_impact_usd, notes=notes, actor=actor)
+
+
+@router.get("/memory")
+def get_memory_summary_endpoint(company_id: Optional[str] = "ORG_DEMO"):
+    """Return a summary of all learned patterns from past risk cases."""
+    from backend.services.feedback_service import get_memory_summary
+    return get_memory_summary(company_id=company_id)
+
+
+@router.get("/supplier-health")
+def get_supplier_health_endpoint(company_id: Optional[str] = "ORG_DEMO"):
+    """Compute and return dynamic health scores for all suppliers."""
+    from backend.services.supplier_health_service import get_supplier_health_report
+    return get_supplier_health_report(company_id=company_id)
+
+
+@router.get("/news-status")
+def get_news_status():
+    """Check whether real news ingestion is configured."""
+    from backend.services.news_service import get_news_api_status
+    return get_news_api_status()
+
+
 @router.get("/health")
 def full_health_check():
     """
@@ -179,6 +213,85 @@ def full_health_check():
     run_check("Background Monitor", "Agents", check_monitoring_service)
     run_check("Action Runner", "Agents", check_action_orchestrator)
     run_check("Chat Assistant", "Agents", check_chat_service)
+
+    # ── Memory & Feedback Learning ────────────────────────────────
+    def check_memory_learning():
+        from backend.services.feedback_service import get_memory_summary
+        summary = get_memory_summary("ORG_DEMO")
+        total = summary.get("total_patterns", 0)
+        successes = summary.get("successful_resolutions", 0)
+        top_rejects = summary.get("top_rejection_reasons", [])
+        if total == 0:
+            return "No patterns learned yet — resolve your first risk case to start building memory"
+        msg = f"Memory bank has {total} learned pattern(s); {successes} successful resolution(s) on record"
+        if top_rejects:
+            msg += f"; top rejection reason: '{top_rejects[0]['reason']}'"
+        return msg
+
+    def check_news_ingestion():
+        from backend.services.news_service import get_news_api_status
+        status = get_news_api_status()
+        return status.get("message", "News status unknown")
+
+    def check_supplier_health():
+        from backend.services.supplier_health_service import get_supplier_health_report
+        report = get_supplier_health_report("ORG_DEMO")
+        total = report.get("total_suppliers", 0)
+        critical = report.get("critical_count", 0)
+        avg = report.get("avg_health_score", 0)
+        if total == 0:
+            return "No suppliers found — add suppliers in Configuration to enable health scoring"
+        msg = f"Scored {total} supplier(s) — avg health {avg}/100"
+        if critical > 0:
+            msg += f"; {critical} supplier(s) in CRITICAL status"
+        return msg
+
+    def check_tradeoff_engine():
+        from backend.routers.simulate import router as sim_router
+        # Check the tradeoff endpoint is registered
+        routes = [r.path for r in sim_router.routes]
+        if any("tradeoff" in r for r in routes):
+            return "Trade-off simulation engine is available at /api/simulate/tradeoff"
+        raise Exception("Trade-off endpoint not registered")
+
+    def check_hyper_personalization():
+        prefs = supabase.table("memory_preferences").select("objectives").limit(1).execute()
+        obj = ((prefs.data or [{}])[0].get("objectives") or {})
+        fields = []
+        if obj.get("lead_time_sensitivity"):
+            fields.append(f"lead time sensitivity={obj['lead_time_sensitivity']}")
+        if obj.get("supplier_concentration_threshold"):
+            fields.append(f"concentration limit={obj['supplier_concentration_threshold']}")
+        if obj.get("contract_structures"):
+            fields.append(f"contracts={','.join(obj['contract_structures'])}")
+        if obj.get("customer_slas"):
+            fields.append(f"{len(obj['customer_slas'])} SLA(s) configured")
+        if fields:
+            return "Hyper-personalization active: " + "; ".join(fields)
+        return "Hyper-personalization not yet configured — set preferences in Configuration"
+
+    def check_reasoning_traces():
+        runs_res = supabase.table("action_runs").select("action_run_id", count="exact").execute()
+        run_count = runs_res.count or 0
+        cases_res = supabase.table("risk_cases").select("case_id, reasoning_summary, plan_iterations").order("created_at", desc=True).limit(5).execute()
+        cases = cases_res.data or []
+        traced = sum(1 for c in cases if c.get("reasoning_summary") and len(c.get("reasoning_summary") or []) > 0)
+        with_iterations = sum(1 for c in cases if c.get("plan_iterations") and len(c.get("plan_iterations") or []) > 0)
+        if run_count == 0:
+            return "No pipeline traces yet — run a risk assessment to generate your first reasoning trace"
+        msg = f"{run_count} pipeline trace(s) on record"
+        if traced > 0:
+            msg += f"; {traced} recent case(s) have full reasoning summaries"
+        if with_iterations > 0:
+            msg += f"; {with_iterations} case(s) have plan revision history"
+        return msg
+
+    run_check("Memory & Learning", "Intelligence", check_memory_learning)
+    run_check("Reasoning Traces", "Intelligence", check_reasoning_traces)
+    run_check("Real News Ingestion", "Intelligence", check_news_ingestion)
+    run_check("Supplier Health Scoring", "Intelligence", check_supplier_health)
+    run_check("Trade-off Engine", "Intelligence", check_tradeoff_engine)
+    run_check("Hyper-Personalization", "Intelligence", check_hyper_personalization)
 
     # ── Summary ──────────────────────────────────────────────────
     total = len(checks)

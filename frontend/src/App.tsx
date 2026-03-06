@@ -9,6 +9,9 @@ import OmniAgentPanel from './components/OmniAgentPanel';
 import LiveSimulation from './pages/LiveSimulation';
 import Configuration from './pages/Configuration';
 import ActivityLog from './pages/ActivityLog';
+import AgentPipeline from './pages/AgentPipeline';
+import SupplierHealth from './pages/SupplierHealth';
+import MemoryLearning from './pages/MemoryLearning';
 
 function App() {
   return (
@@ -23,6 +26,9 @@ function App() {
         <Route path="simulation" element={<LiveSimulation />} />
         <Route path="config" element={<Configuration />} />
         <Route path="logs" element={<ActivityLog />} />
+        <Route path="pipeline" element={<AgentPipeline />} />
+        <Route path="supplier-health" element={<SupplierHealth />} />
+        <Route path="memory" element={<MemoryLearning />} />
       </Route>
     </Routes>
   );
