@@ -8,6 +8,7 @@ from typing import Any, Dict, Optional
 from backend.services.supabase_client import supabase
 from backend.services.action_steps import update_step, get_steps
 from backend.services.agent_runner import DEFAULT_ACTION_RUN_STEPS
+from backend.services.email_service import send_email_for_draft
 
 
 def _ensure_steps(action_run_id: str):
@@ -20,14 +21,23 @@ def _ensure_steps(action_run_id: str):
 
 def run_step_4_send_email(action_run_id: str, approved_by: str) -> None:
     """
-    Step 4: Mark draft email as 'sent' and attach artifact_id to the CommitAgent step.
-    (No real email is sent for the demo — the draft artifact serves as the record.)
+    Step 4: Send draft email (if enabled) and attach artifact_id to the CommitAgent step.
+
+    Safeguards:
+    - Requires EMAIL_ENABLED=true and EMAIL_SANDBOX_TO to be configured.
+    - Enforces a simple per-minute rate limit via draft_artifacts.status='sent'.
+    - Always sends to the sandbox inbox, not the original 'to' address.
     """
-    res = supabase.table("draft_artifacts").select("artifact_id").eq("action_run_id", action_run_id).eq("type", "email").order("created_at", desc=True).limit(1).execute()
-    artifact_id = res.data[0]["artifact_id"] if res.data else None
-    if artifact_id:
-        # Mark the draft as sent so UI shows it as delivered
-        supabase.table("draft_artifacts").update({"status": "sent"}).eq("artifact_id", artifact_id).execute()
+    res = supabase.table("draft_artifacts").select("*").eq("action_run_id", action_run_id).eq("type", "email").order("created_at", desc=True).limit(1).execute()
+    artifact = res.data[0] if res.data else None
+    artifact_id = artifact.get("artifact_id") if artifact else None
+
+    if artifact:
+        send_result = send_email_for_draft(artifact, approved_by=approved_by)
+        # Update draft status based on result, but never throw here.
+        new_status = "sent" if send_result.get("sent") else artifact.get("status") or "pending"
+        supabase.table("draft_artifacts").update({"status": new_status}).eq("artifact_id", artifact_id).execute()
+
     update_step(action_run_id, 3, "DONE", artifact_id=artifact_id)
 
 
