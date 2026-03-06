@@ -63,6 +63,16 @@ def mark_all_alerts_read():
     return {"status": "ok"}
 
 
+@router.get("/health/agents")
+def agent_health_check():
+    """
+    Run scheduled health checks via health monitor.
+    Returns manager health check results.
+    """
+    from agents.manager.health_monitor import run_all_health_checks
+    return run_all_health_checks()
+
+
 @router.get("/health")
 def full_health_check():
     """

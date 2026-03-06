@@ -131,6 +131,36 @@ Output ONLY valid JSON matching this exact schema:
 }"""
 
 
+def _normalize_hypotheses(hypotheses: Any) -> list:
+    """Convert hypotheses to UI-friendly array of { title, description } for storage."""
+    if hypotheses is None:
+        return []
+    if isinstance(hypotheses, list):
+        out = []
+        for h in hypotheses:
+            if isinstance(h, dict):
+                out.append({
+                    "title": h.get("title") or h.get("name") or "",
+                    "description": h.get("description") or h.get("summary") or str(h.get("step", ""))
+                })
+            else:
+                out.append({"title": "", "description": str(h)})
+        return out
+    if isinstance(hypotheses, dict):
+        chain = hypotheses.get("chain")
+        if isinstance(chain, list):
+            return [
+                {"title": f"Step {i + 1}", "description": str(step)}
+                for i, step in enumerate(chain)
+            ]
+        # single hypothesis object
+        return [{
+            "title": hypotheses.get("title") or hypotheses.get("name") or "Hypothesis",
+            "description": hypotheses.get("description") or hypotheses.get("summary") or str(chain) if chain else ""
+        }]
+    return []
+
+
 def _directives_prompt_block(directives: Optional[Dict[str, bool]], cost_cap_override: Optional[float]) -> str:
     """Build prompt block for active system directives and cost cap."""
     lines = []
@@ -252,7 +282,7 @@ Live operational context (already filtered by focus suppliers/materials if provi
         "status": "open",
         "scores": payload.get("scores"),
         "exposure": payload.get("exposure"),
-        "hypotheses": payload.get("hypotheses"),
+        "hypotheses": _normalize_hypotheses(payload.get("hypotheses")),
         "recommended_plan": json.dumps(rec) if isinstance(rec, dict) else (rec if isinstance(rec, str) else ""),
         "alternative_plans": payload.get("alternative_plans") or [],
         "reasoning_summary": reasoning_summary,
@@ -276,8 +306,21 @@ Live operational context (already filtered by focus suppliers/materials if provi
     headline_short = (payload.get("headline") or "")[:80]
     subject = f"[URGENT] Supply Chain Risk Mitigation — {headline_short}"
     actions_list = rec.get("actions") or [] if isinstance(rec, dict) else []
-    cost_str = f"${rec.get('expected_cost_usd', 0):,.0f}" if isinstance(rec, dict) and rec.get('expected_cost_usd') else "TBD"
-    actions_text = "\n".join(f"  • {a}" for a in actions_list) if actions_list else "  • See attached mitigation plan"
+    # For supplier-facing email, filter out internal-only actions like \"contact supplier\"
+    filtered_actions: list = []
+    for a in actions_list:
+        try:
+            lower = str(a).lower()
+        except Exception:
+            lower = ""
+        # Heuristic: hide internal coordination steps
+        if any(phrase in lower for phrase in ["contact supplier", "notify supplier", "alert supplier"]):
+            continue
+        filtered_actions.append(a)
+    if not filtered_actions and actions_list:
+        # If everything was filtered out, fall back to generic reference
+        filtered_actions = ["Please review the attached mitigation plan and proposed changes."]
+    actions_text = "\n".join(f"  • {a}" for a in filtered_actions) if filtered_actions else "  • See attached mitigation plan"
     body = f"""Dear Supplier Partnership Team,
 
 We are writing to advise you of an identified supply chain disruption that requires immediate coordination.
@@ -290,9 +333,6 @@ Risk Assessment Summary:
 
 Recommended Mitigation Actions:
 {actions_text}
-
-Expected Cost: {cost_str}
-Expected Loss Prevented: ${rec.get('expected_loss_prevented_usd', 0):,.0f}
 
 We request your immediate confirmation and action on the above. Please respond within 24 hours.
 
@@ -347,18 +387,15 @@ def _urgency_from_timeline(timeline: Optional[str]) -> int:
     return {"flexible": 30, "standard": 50, "tight": 75, "critical": 95}.get((timeline or "").lower(), 75)
 
 async def run_pipeline(company_id: str, trigger: str, context: dict = None):
-    """Run real LLM risk assessment; no mock data."""
+    """Run real LLM risk assessment through manager layer; no mock data."""
+    from backend.services.manager_service import run_with_manager
+    
     ctx = context or {}
-    scenario_text = (ctx.get("scenario_text") or trigger or "").strip()
-    if ctx.get("severity") is not None:
-        severity = int(ctx["severity"])
-    else:
-        severity = _severity_from_order_volume(ctx.get("order_volume"))
-    if ctx.get("urgency") is not None:
-        urgency = int(ctx["urgency"])
-    else:
-        urgency = _urgency_from_timeline(ctx.get("timeline"))
-    run_context = {
+    # Build payload for manager
+    payload = {
+        "scenario_text": (ctx.get("scenario_text") or trigger or "").strip(),
+        "severity": int(ctx["severity"]) if ctx.get("severity") is not None else _severity_from_order_volume(ctx.get("order_volume")),
+        "urgency": int(ctx["urgency"]) if ctx.get("urgency") is not None else _urgency_from_timeline(ctx.get("timeline")),
         "focus_suppliers": ctx.get("focus_suppliers"),
         "focus_materials": ctx.get("focus_materials"),
         "flagged_regions": ctx.get("flagged_regions"),
@@ -366,13 +403,38 @@ async def run_pipeline(company_id: str, trigger: str, context: dict = None):
         "budget_flexibility": ctx.get("budget_flexibility"),
         "risk_tolerance": ctx.get("risk_tolerance"),
         "timeline": ctx.get("timeline"),
+        "trigger": trigger
     }
+    
     try:
-        result = await run_risk_assessment(company_id, scenario_text, severity, urgency, run_context=run_context)
+        # Run through manager
+        result = await run_with_manager(
+            company_id=company_id,
+            trigger_type="user_scenario",
+            payload=payload
+        )
         return result
     except Exception as e:
-        print(f"Error in run_risk_assessment: {e}")
-        return {"status": "error", "message": str(e)}
+        print(f"Error in manager pipeline: {e}")
+        # Fallback to direct call if manager fails
+        try:
+            scenario_text = payload.get("scenario_text", "")
+            severity = payload.get("severity", 50)
+            urgency = payload.get("urgency", 50)
+            run_context = {
+                "focus_suppliers": payload.get("focus_suppliers"),
+                "focus_materials": payload.get("focus_materials"),
+                "flagged_regions": payload.get("flagged_regions"),
+                "directives": payload.get("directives"),
+                "budget_flexibility": payload.get("budget_flexibility"),
+                "risk_tolerance": payload.get("risk_tolerance"),
+                "timeline": payload.get("timeline"),
+            }
+            result = await run_risk_assessment(company_id, scenario_text, severity, urgency, run_context=run_context)
+            return result
+        except Exception as e2:
+            print(f"Error in fallback run_risk_assessment: {e2}")
+            return {"status": "error", "message": str(e2)}
 
 
 RERUN_PLAN_SYSTEM_PROMPT = """You are Omni's PlanGenerator. The user REJECTED a previous mitigation plan. Your job is to generate ONE alternative plan that respects the new constraints. Do NOT re-run perception, scoring, or exposure — use the existing risk case context only.

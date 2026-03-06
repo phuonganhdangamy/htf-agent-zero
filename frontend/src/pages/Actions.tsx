@@ -1,7 +1,7 @@
 import { useState, useEffect, Fragment } from 'react';
 import { supabase } from '../lib/supabase';
 import type { ChangeProposal } from '../types';
-import { CheckCircle2, Clock, Check, X, ChevronRight, ChevronDown, Lock, FileText, Mail } from 'lucide-react';
+import { CheckCircle2, Clock, Check, X, ChevronRight, ChevronDown, Lock, FileText, Mail, Save } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import axios from 'axios';
@@ -62,8 +62,8 @@ export default function ActionsApproval() {
     const [loading, setLoading] = useState(true);
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [draftModal, setDraftModal] = useState<{ artifact: DraftArtifact; proposalId: string; actionRunId: string } | null>(null);
-    const [editedBody, setEditedBody] = useState<string>('');
-    const [draftApproved, setDraftApproved] = useState(false);
+    const [draftEdit, setDraftEdit] = useState<{ to: string; subject: string; body: string } | null>(null);
+
     // #17 dedup: track which proposals are currently being approved/rejected
     const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
 
@@ -87,6 +87,20 @@ export default function ActionsApproval() {
             setLoading(false);
         }
     };
+
+    // When a draft modal opens, initialize editable fields for email drafts
+    useEffect(() => {
+        if (draftModal && draftModal.artifact.type === 'email') {
+            const sp = draftModal.artifact.structured_payload || {};
+            setDraftEdit({
+                to: (sp.to as string) || '',
+                subject: (sp.subject as string) || '',
+                body: (sp.body as string) || draftModal.artifact.preview || '',
+            });
+        } else {
+            setDraftEdit(null);
+        }
+    }, [draftModal]);
 
     // #17 dedup helper
     const withProcessing = async (proposalId: string, fn: () => Promise<void>) => {
@@ -194,12 +208,21 @@ export default function ActionsApproval() {
         }
     };
 
-    const handleStepReject = async (actionRunId: string, stepIndex: number) => {
+    const handleStepReject = async (proposalId: string, actionRunId: string, stepIndex: number) => {
         try {
+            // Lock the rejected step so downstream steps remain blocked
             await axios.patch(`${API_BASE}/api/agent/action_runs/${actionRunId}/steps`, {
                 step_index: stepIndex,
                 status: 'LOCKED',
             });
+
+            // Also mark the overall proposal as rejected so status chips and flows stay consistent
+            await axios.post(`${API_BASE}/api/agent/approve`, {
+                proposal_id: proposalId,
+                approved_by: 'Omni Admin',
+                decision: 'reject',
+            });
+
             fetchActions();
         } catch (err) {
             console.error(err);
@@ -535,10 +558,10 @@ export default function ActionsApproval() {
                                                                     <span className="text-[11px] text-slate-400">{format(new Date(s.timestamp), 'MMM d, HH:mm')}</span>
                                                                 )}
                                                                 {displayStatus === 'DONE' && <CheckCircle2 size={14} className="text-emerald-600" />}
-                                                                {displayStatus === 'PENDING' && actionRunId && (
+                                            {displayStatus === 'PENDING' && actionRunId && (
                                                                     <div className="flex gap-1 ml-auto" onClick={(e) => e.stopPropagation()}>
                                                                         <button onClick={() => handleStepApprove(actionRunId, idx)} className="px-2 py-0.5 bg-emerald-100 text-emerald-600 hover:bg-emerald-200 rounded text-xs font-medium">Approve</button>
-                                                                        <button onClick={() => handleStepReject(actionRunId, idx)} className="px-2 py-0.5 bg-rose-100 text-rose-600 hover:bg-rose-200 rounded text-xs font-medium">Reject</button>
+                                                                        <button onClick={() => handleStepReject(act.proposal_id, actionRunId, idx)} className="px-2 py-0.5 bg-rose-100 text-rose-600 hover:bg-rose-200 rounded text-xs font-medium">Reject</button>
                                                                     </div>
                                                                 )}
                                                                 {/* #7: View Draft button appears when artifact_id is set */}
@@ -595,7 +618,40 @@ export default function ActionsApproval() {
                         </div>
 
                         <div className="px-6 py-4 overflow-auto flex-1">
-                            {renderDraftContent(draftModal.artifact)}
+                            {draftModal.artifact.type === 'email' && draftEdit ? (
+                                <div className="space-y-3">
+                                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-2 text-sm">
+                                        <div className="flex gap-2 items-center">
+                                            <span className="font-semibold text-slate-500 w-16 shrink-0">To:</span>
+                                            <input
+                                                type="email"
+                                                value={draftEdit.to}
+                                                onChange={(e) => setDraftEdit(prev => prev ? { ...prev, to: e.target.value } : prev)}
+                                                className="flex-1 border border-slate-200 rounded px-2 py-1 text-sm"
+                                            />
+                                        </div>
+                                        <div className="flex gap-2 items-center">
+                                            <span className="font-semibold text-slate-500 w-16 shrink-0">Subject:</span>
+                                            <input
+                                                type="text"
+                                                value={draftEdit.subject}
+                                                onChange={(e) => setDraftEdit(prev => prev ? { ...prev, subject: e.target.value } : prev)}
+                                                className="flex-1 border border-slate-200 rounded px-2 py-1 text-sm"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Body</label>
+                                        <textarea
+                                            value={draftEdit.body}
+                                            onChange={(e) => setDraftEdit(prev => prev ? { ...prev, body: e.target.value } : prev)}
+                                            className="w-full border border-slate-200 rounded-lg p-3 text-sm text-slate-700 min-h-[200px] font-sans leading-relaxed"
+                                        />
+                                    </div>
+                                </div>
+                            ) : (
+                                renderDraftContent(draftModal.artifact)
+                            )}
                         </div>
 
                         <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
@@ -605,19 +661,49 @@ export default function ActionsApproval() {
                             >
                                 Close
                             </button>
-                            {draftApproved ? (
-                                <div className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg">
-                                    <CheckCircle2 size={16} />
-                                    Approved
-                                </div>
-                            ) : (
+                            {draftModal.artifact.type === 'email' && draftEdit && (
                                 <button
-                                    onClick={handleDraftApprove}
-                                    className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors flex items-center gap-2"
+                                    onClick={async () => {
+                                        try {
+                                            const updatedPayload = {
+                                                ...(draftModal.artifact.structured_payload || {}),
+                                                to: draftEdit.to,
+                                                subject: draftEdit.subject,
+                                                body: draftEdit.body,
+                                            };
+                                            const preview = `TO: ${draftEdit.to || '—'}\nSUBJECT: ${draftEdit.subject || '—'}\n\n${draftEdit.body || ''}`;
+                                            await supabase
+                                                .from('draft_artifacts')
+                                                .update({
+                                                    structured_payload: updatedPayload,
+                                                    preview,
+                                                })
+                                                .eq('artifact_id', draftModal.artifact.artifact_id);
+                                            // Update local modal state so UI reflects saved changes
+                                            setDraftModal(current => current ? ({
+                                                ...current,
+                                                artifact: {
+                                                    ...current.artifact,
+                                                    structured_payload: updatedPayload,
+                                                    preview,
+                                                },
+                                            }) : current);
+                                        } catch (err) {
+                                            console.error(err);
+                                        }
+                                    }}
+                                    className="px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors flex items-center gap-2"
                                 >
-                                    <Check size={16} /> Approve & Proceed
+                                    <Save size={16} /> Save Draft
                                 </button>
                             )}
+                            <button
+                                onClick={handleDraftApprove}
+                                className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors flex items-center gap-2"
+                            >
+                                <Check size={16} /> Approve & Proceed
+                            </button>
+
                         </div>
                     </div>
                 </div>
