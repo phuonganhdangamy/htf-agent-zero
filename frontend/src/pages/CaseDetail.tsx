@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import axios from 'axios';
@@ -6,6 +6,129 @@ import type { ChangeProposal } from '../types';
 import { ArrowLeft, CheckCircle, XCircle, Clock, FileText } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
+function formatExposureValue(val: any): string {
+    if (val === null || val === undefined) return '—';
+    if (val === '') return '—';
+    if (typeof val === 'object') return Array.isArray(val) ? val.join(', ') : JSON.stringify(val);
+    return String(val);
+}
+
+function renderExposure(exposure: any): React.ReactNode {
+    if (!exposure || typeof exposure !== 'object') {
+        return <p className="text-sm text-slate-500 italic">No specific exposure data logged.</p>;
+    }
+    const entries: { label: string; value: React.ReactNode }[] = [];
+    if (exposure.suppliers != null && Array.isArray(exposure.suppliers) && exposure.suppliers.length > 0) {
+        entries.push({ label: 'Suppliers at risk', value: exposure.suppliers.join(', ') });
+    }
+    if (exposure.skus != null && Array.isArray(exposure.skus) && exposure.skus.length > 0) {
+        entries.push({ label: 'Materials / SKUs at risk', value: exposure.skus.join(', ') });
+    }
+    if (exposure.inventory_days_cover != null) {
+        entries.push({ label: 'Inventory days cover', value: `${exposure.inventory_days_cover} days` });
+    }
+    if (exposure.pos_at_risk != null && Array.isArray(exposure.pos_at_risk) && exposure.pos_at_risk.length > 0) {
+        entries.push({
+            label: 'Purchase orders at risk',
+            value: exposure.pos_at_risk.map((po: any) => (typeof po === 'object' && po?.po_id ? po.po_id : po)).join(', '),
+        });
+    }
+    if (exposure.affected_assets != null && Array.isArray(exposure.affected_assets) && exposure.affected_assets.length > 0) {
+        entries.push({ label: 'Affected assets', value: exposure.affected_assets.join(', ') });
+    }
+    // Fallback: show remaining keys as label-value
+    Object.entries(exposure).forEach(([key]) => {
+        if (['suppliers', 'skus', 'inventory_days_cover', 'pos_at_risk', 'affected_assets'].includes(key)) return;
+        const v = (exposure as any)[key];
+        if (v !== null && v !== undefined) {
+            entries.push({
+                label: key.replace(/_/g, ' ').replace(/\b\w/g, (s) => s.toUpperCase()),
+                value: formatExposureValue(v),
+            });
+        }
+    });
+    if (entries.length === 0) {
+        return <p className="text-sm text-slate-500 italic">No specific exposure data logged.</p>;
+    }
+    return (
+        <div className="space-y-2 text-sm">
+            {entries.map(({ label, value }) => (
+                <div key={label} className="flex gap-2">
+                    <span className="font-medium text-slate-500 shrink-0">{label}:</span>
+                    <span className="text-slate-800 break-words">{value}</span>
+                </div>
+            ))}
+        </div>
+    );
+}
+
+function formatDiffValue(val: any): string {
+    if (val === null || val === undefined) return '[None]';
+    if (val === '') return '[Empty]';
+    if (typeof val === 'object') return JSON.stringify(val);
+    return String(val);
+}
+
+function renderProposalDiff(diff: any): React.ReactNode {
+    if (!diff || typeof diff !== 'object') return <span className="text-slate-500 italic">{formatDiffValue(diff)}</span>;
+    const lines: React.ReactNode[] = [];
+    if (Array.isArray(diff.actions) && diff.actions.length > 0) {
+        lines.push(
+            <div key="actions" className="space-y-1">
+                <span className="text-xs font-semibold text-slate-500 uppercase">Proposed actions</span>
+                <ul className="list-disc list-inside text-slate-700 space-y-0.5">
+                    {diff.actions.map((action: string, idx: number) => (
+                        <li key={idx}>{action}</li>
+                    ))}
+                </ul>
+            </div>
+        );
+    }
+    Object.entries(diff).forEach(([key, value]) => {
+        if (key === 'actions' || key === 'plan_id') return;
+        if (key === 'name') {
+            const nameVal = typeof value === 'object' && value !== null ? (value as any).to ?? (value as any).new ?? formatDiffValue(value) : formatDiffValue(value);
+            lines.push(
+                <div key={key} className="flex flex-wrap gap-x-2 items-baseline text-sm">
+                    <span className="font-medium text-slate-500 shrink-0">Plan:</span>
+                    <span className="text-slate-800">{nameVal}</span>
+                </div>
+            );
+            return;
+        }
+        if (value && typeof value === 'object') {
+            const oldVal = 'old' in value ? (value as any).old : ('from' in value ? (value as any).from : undefined);
+            const newVal = 'new' in value ? (value as any).new : ('to' in value ? (value as any).to : undefined);
+            if (oldVal !== undefined || newVal !== undefined) {
+                const label = key.replace(/_/g, ' ').replace(/\b\w/g, (s) => s.toUpperCase());
+                const isUnchanged = oldVal === newVal;
+                lines.push(
+                    <div key={key} className="flex flex-wrap gap-x-2 items-baseline text-sm">
+                        <span className="font-medium text-slate-500 shrink-0">{label}:</span>
+                        {isUnchanged ? (
+                            <span className="text-slate-600">{formatDiffValue(oldVal ?? newVal)}</span>
+                        ) : (
+                            <span className="text-slate-700">
+                                <span className="line-through text-slate-400">{formatDiffValue(oldVal)}</span>
+                                <span className="mx-1">→</span>
+                                <span className="font-medium text-emerald-700">{formatDiffValue(newVal)}</span>
+                            </span>
+                        )}
+                    </div>
+                );
+                return;
+            }
+        }
+        lines.push(
+            <div key={key} className="flex flex-wrap gap-x-2 items-baseline text-sm">
+                <span className="font-medium text-slate-500 shrink-0">{key.replace(/_/g, ' ')}:</span>
+                <span className="text-slate-800 break-words">{formatDiffValue(value)}</span>
+            </div>
+        );
+    });
+    return lines.length > 0 ? <div className="space-y-2">{lines}</div> : <span className="text-slate-500 italic">No details</span>;
+}
 
 export default function CaseDetail() {
     const { id } = useParams();
@@ -116,13 +239,9 @@ export default function CaseDetail() {
                 <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div>
                         <h3 className="text-sm font-bold text-slate-900 uppercase tracking-wider mb-4 border-b pb-2">Business Exposure</h3>
-                        {riskCase.exposure ? (
-                            <pre className="text-xs bg-slate-50 p-4 rounded-lg border border-slate-100 overflow-x-auto">
-                                {JSON.stringify(riskCase.exposure, null, 2)}
-                            </pre>
-                        ) : (
-                            <p className="text-sm text-slate-500 italic">No specific exposure data logged.</p>
-                        )}
+                        <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                            {renderExposure(riskCase.exposure)}
+                        </div>
                     </div>
 
                     <div>
@@ -161,14 +280,16 @@ export default function CaseDetail() {
                 ) : (
                     <div className="space-y-4">
                         {proposals.map((prop) => (
-                            <div key={prop.id} className="border border-slate-200 rounded-lg p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                <div>
-                                    <div className="font-semibold text-slate-800">System: {prop.system} | Entity: {prop.entity_type} ({prop.entity_id})</div>
-                                    <div className="text-sm text-slate-500 mt-1 font-mono">
-                                        Diff: {JSON.stringify(prop.diff)}
+                            <div key={prop.id} className="border border-slate-200 rounded-lg p-4 flex flex-col md:flex-row md:items-start justify-between gap-4 overflow-hidden">
+                                <div className="min-w-0 flex-1 overflow-hidden">
+                                    <div className="font-semibold text-slate-800 mb-2">
+                                        {prop.system} · {prop.entity_type} ({prop.entity_id})
+                                    </div>
+                                    <div className="text-sm text-slate-600 break-words max-w-full">
+                                        {renderProposalDiff(prop.diff)}
                                     </div>
                                 </div>
-                                <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex items-center gap-2 shrink-0 flex-shrink-0">
                                     {prop.status === 'pending' ? (
                                         <>
                                             <button onClick={() => handleApprove(prop.proposal_id)} className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5">

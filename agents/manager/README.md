@@ -75,6 +75,8 @@ from backend.services.manager_service import run_perception_with_manager
 result = await run_perception_with_manager(company_id="ORG_DEMO")
 ```
 
+In production, `backend/main.py` starts a background perception scheduler on app startup that calls `run_perception_with_manager` every `PERCEPTION_INTERVAL_SECONDS` seconds (default 900s) for `OMNI_COMPANY_ID` (default `ORG_DEMO`), and skips runs when fresh `signal_events` already exist.
+
 ### Getting Session Summary
 
 ```python

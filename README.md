@@ -24,13 +24,20 @@ Omni is an agentic AI system designed to monitor global supply chain disruptions
 
 - **Location**: `/backend`; entry point `backend/main.py`, runs on `localhost:8000`
 - **Key routes**:
-  - `POST /api/agent/run` — Fetches live Supabase data, calls Gemini for RiskCase JSON, saves to `risk_cases`, creates action_run + change_proposal (no mock data)
+  - `POST /api/agent/run` — Fetches live Supabase data, calls Gemini for RiskCase JSON, saves to `risk_cases`, creates `action_runs` + `change_proposals` (no mock data)
   - `GET /api/agent/cases` — List risk cases (optional status, limit, order)
-  - `POST /api/agent/approve` — Approve/reject change proposal
+  - `GET /api/agent/cases/{case_id}` — Fetch a single case by `case_id` (or underlying `id` as fallback)
+  - `POST /api/agent/approve` — Approve/reject change proposal and advance the action run
   - `POST /api/chat` — Chat with context (Supabase + optional Alpha Vantage commodity prices + Google Search grounding)
   - `POST /api/risk_cases` — Insert risk case; returns `{ case_id }`
-- **Startup**: Seeds `memory_patterns` with default Taiwan Strait pattern if missing
-- **Agent modules** (`/agents`): ADK pipeline (perception, reasoning, planning, action, reflection) is built but **Live Simulation uses a dedicated Gemini flow** in `backend/services/agent_runner.py` (real data → prompt → parse → save), not the full ADK run
+  - `POST /api/monitoring/scan` — On-demand perception scan; saves new `signal_events` and auto‑escalates high‑confidence ones
+- **Startup / background jobs**:
+  - Seeds `memory_patterns` with default Taiwan Strait pattern if missing
+  - Starts a **background perception scheduler** that calls `run_perception_with_manager` every `PERCEPTION_INTERVAL_SECONDS` (default 900s) for `OMNI_COMPANY_ID` (default `ORG_DEMO`), skipping runs when recent perception data exists
+- **Agent modules** (`/agents`):
+  - ADK pipeline (perception, reasoning, planning, action, reflection) is implemented.
+  - **Planning layer** now exposes a pure‑Python **Optimization Engine** that ranks candidate mitigation plans by `feasibility_score` using expected risk reduction, cost, loss prevented, and confidence.
+  - Execution Planner uses this optimization tool to select the recommended plan and store **ranked alternative plans** on each `risk_cases` row.
 
 ### Database (Supabase / PostgreSQL)
 
@@ -66,12 +73,13 @@ Set `frontend/.env`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`. Optional: `V
 
 ## Next Steps (Planned)
 
-1. **Action layer integration** — Wire the full ADK action coordinator (drafting → approval → commit → verification → audit) so that when a RiskCase is produced, the system automatically drafts change proposals, waits for HITL, then commits and verifies against the ERP.
-2. **Draft emails / notifications** — Use the existing Drafting Agent and `draft_artifacts` table to generate human-readable emails or Slack messages for stakeholders; expose in UI and allow “Send” or “Edit then send.”
-3. **Ping / user notifications** — Notify designated users when high-severity risk cases are created or when proposals are pending (email, in-app, or webhook to Slack/Teams).
-4. **Full ADK pipeline for batch runs** — Optionally run the full perception → reasoning → planning → action → reflection pipeline (e.g. on a schedule or webhook) in addition to the on-demand Live Simulation Gemini flow.
-5. **Context propagation** — Ensure `case_id` and `proposal_id` flow correctly from reasoning through planning to action so audit trails and approvals link back to the right case.
-6. **Tool usage in agents** — Verify LLMs actually call `save_risk_case`, `save_change_proposal`, and ERP tools at runtime when the full ADK pipeline is used.
+1. **End‑to‑end action execution** — Wire the full ADK action coordinator (drafting → approval → commit → verification → audit) so that when a RiskCase is produced and a proposal is approved, the system can safely push a simulated ERP change, verify it, and log the full trace.
+2. **Draft emails / notifications UI** — Extend the existing **View Draft** experience so humans can edit rich email/Slack drafts, save them, and view iteration history per case.
+3. **Real Emailing Agent** — Introduce a dedicated **Emailing Agent** in the Action layer that, once a draft is approved, can send real emails via an SMTP provider or API (e.g. SendGrid), with safeguards (sandbox/test inbox, rate limiting, opt‑in per environment).
+4. **Ping / user notifications** — Notify designated users when high‑severity risk cases are created or when proposals are pending (email, in‑app toast, or webhook to Slack/Teams), using the same notification infrastructure as the Emailing Agent.
+5. **Full ADK pipeline for batch runs** — Use the manager + ADK root agent for scheduled/batch runs so Perception → Reasoning → Planning → Action → Reflection execute with shared context (e.g. via `run_perception_with_manager` and a future `run_with_manager` entrypoint).
+6. **Configurable optimization policy** — Expose Optimization Engine weights (risk reduction vs service level vs cost) and constraints (cost caps, minimum service levels) in `memory_preferences` so operations teams can tune how plans are ranked.
+7. **Tool usage in agents** — Verify LLM agents consistently call `save_risk_case`, `save_change_proposal`, planning tools, and ERP stubs at runtime when the full ADK pipeline is used, and log decisions into `audit_log` for traceability.
 
 For architecture details and UI→backend mapping, see `docs/architecture.md` and `docs/ui-mapping.md`.
 
