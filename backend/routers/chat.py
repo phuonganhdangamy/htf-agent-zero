@@ -91,16 +91,29 @@ async def build_chat_context(org_id: str) -> dict:
     return context
 
 
-def _build_system_prompt(context: dict) -> str:
+def _build_system_prompt(context: dict, org_id: str = "ORG_DEMO") -> str:
     suppliers_str = json.dumps(context.get("suppliers", []), default=str)
     inventory_str = json.dumps(context.get("inventory", []), default=str)
     purchase_orders_str = json.dumps(context.get("open_purchase_orders", []), default=str)
     risk_cases_str = json.dumps(context.get("risk_cases", []), default=str)
     commodity_prices_str = json.dumps(context.get("commodity_prices", {}), default=str)
+    
+    # Get session summary from manager
+    session_summary = ""
+    try:
+        from agents.manager.session_tracker import get_latest_session_summary, get_session_stats
+        summary = get_latest_session_summary(org_id)
+        stats = get_session_stats(org_id)
+        if summary:
+            session_summary = f"\n\n3. SESSION ACTIVITY (what Omni has done today):\n   {summary}"
+        elif stats.get("total_pipeline_runs", 0) > 0:
+            session_summary = f"\n\n3. SESSION ACTIVITY:\n   Ran {stats['total_pipeline_runs']} pipeline(s), created {stats['total_cases_created']} case(s), {stats['pending_actions']} action(s) pending approval."
+    except Exception as e:
+        print(f"Error fetching session summary: {e}")
 
     return f"""You are Omni, an intelligent supply chain assistant for Omni Manufacturing.
 
-You have two sources of information:
+You have multiple sources of information:
 
 1. INTERNAL DATA (always check this first for company-specific questions):
    - Suppliers: {suppliers_str}
@@ -110,12 +123,13 @@ You have two sources of information:
    - Commodity prices (from data feed): {commodity_prices_str}
 
 2. WEB SEARCH (use for market news, geopolitical events, industry trends, commodity analysis, anything requiring current world knowledge):
-   - Use Google Search when asked about current events, news, prices, regulations, or anything not in the internal data above.
+   - Use Google Search when asked about current events, news, prices, regulations, or anything not in the internal data above.{session_summary}
 
 Rules:
 - For questions about OUR suppliers, inventory, orders, risks → use internal data
 - For questions about the world (commodity prices, news, regulations, trade policy, geopolitical events) → use web search
 - For questions combining both (e.g. "how does the Taiwan situation affect our SUPP_044?") → use web search for context, internal data for specifics, then synthesize
+- For questions like "What has Omni done today?" or "Are there pending approvals?" → use session activity data
 - Always be specific — reference real supplier IDs, material IDs, and PO numbers from the internal data when relevant
 - Keep responses concise but substantive
 
@@ -124,7 +138,8 @@ Good examples:
 - "What is the price of aluminum today?" → web search
 - "What is happening in Taiwan that could affect our supply chain?" → web search + internal
 - "Which of our suppliers are single source?" → internal data
-- "Should we increase safety stock given current freight costs?" → both"""
+- "What has Omni done today?" → session activity
+- "Are there any pending approvals?" → session activity"""
 
 
 class ChatRequest(BaseModel):
@@ -134,10 +149,10 @@ class ChatRequest(BaseModel):
 
 @router.post("/chat")
 async def chat(request: ChatRequest):
-    """Chat with live context (Supabase + commodity prices) and optional Google Search grounding."""
+    """Chat with live context (Supabase + commodity prices + session summary) and optional Google Search grounding."""
     try:
         context = await build_chat_context(request.org_id)
-        system_prompt = _build_system_prompt(context)
+        system_prompt = _build_system_prompt(context, org_id=request.org_id)
         user_message = request.message
 
         client = get_gemini_client()

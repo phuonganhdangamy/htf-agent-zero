@@ -8,6 +8,8 @@ from agents.action.agent import build_action_coordinator
 from agents.reflection.agent import build_reflection_coordinator
 
 # The root pipeline ties all 5 layers together (used for full ADK flow if needed).
+# Note: For v1, manager orchestrates existing flows. Root agent is kept as fallback.
+# In v2, manager will be the primary entry point and root agent will be a sub-agent.
 def build_omni_root_agent() -> SequentialAgent:
     perception = build_perception_pipeline()
     reasoning = build_reasoning_coordinator()
