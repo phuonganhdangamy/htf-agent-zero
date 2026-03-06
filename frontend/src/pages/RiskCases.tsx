@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, Fragment } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import type { RiskCase } from '../types';
-import { Activity, ChevronDown, ChevronRight } from 'lucide-react';
+import { Activity, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import axios from 'axios';
@@ -77,13 +78,58 @@ export default function RiskCases() {
 
   const overallScore = (c: RiskCaseRow) => {
     const s = c.scores;
-    if (typeof s?.overall_risk === 'number') return s.overall_risk;
-    if (typeof s?.probability === 'number' && typeof s?.impact === 'number') return Math.round((s.probability + s.impact) / 2);
+    if (s && typeof s === 'object' && typeof (s as any).overall_risk === 'number') return (s as any).overall_risk;
+    if (s && typeof s === 'object' && typeof (s as any).overall === 'number') return (s as any).overall;
+    if (s && typeof s === 'object' && typeof (s as any).probability === 'number' && typeof (s as any).impact === 'number') return Math.round(((s as any).probability + (s as any).impact) / 2);
+    if (s && typeof s === 'object' && typeof (s as any).likelihood === 'number' && typeof (s as any).impact === 'number') return Math.round(((s as any).likelihood + (s as any).impact) / 2);
     return null;
   };
 
   const scoreColor = (n: number) =>
     n >= 70 ? 'bg-rose-100 text-rose-800' : n >= 40 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700';
+
+  /** Normalize hypotheses for display: support array of { title, description } or legacy { chain: string[] }. */
+  const getHypothesesList = (c: RiskCaseRow): Array<{ title: string; description: string }> => {
+    const h = c.hypotheses;
+    if (Array.isArray(h)) return h.map((x: any) => ({ title: x?.title ?? '', description: x?.description ?? '' }));
+    if (h && typeof h === 'object' && Array.isArray((h as any).chain)) {
+      return (h as any).chain.map((step: string, i: number) => ({ title: `Step ${i + 1}`, description: String(step) }));
+    }
+    return [];
+  };
+
+  /** Parse recommended_plan (may be JSON string or object). */
+  const getRecommendedPlan = (c: RiskCaseRow): { name?: string; actions?: string[]; expected_cost_usd?: number; expected_loss_prevented_usd?: number; expected_delay_days?: number; service_level?: number } | null => {
+    const r = c.recommended_plan;
+    if (r == null) return null;
+    if (typeof r === 'object') return r as any;
+    if (typeof r === 'string') {
+      try { return JSON.parse(r) as any; } catch { return { name: r }; }
+    }
+    return null;
+  };
+
+  /** Human-friendly score label. */
+  const scoreLabel = (key: string) => {
+    const labels: Record<string, string> = {
+      likelihood: 'Likelihood',
+      impact: 'Impact',
+      urgency: 'Urgency',
+      overall: 'Overall',
+      overall_risk: 'Overall risk',
+      confidence: 'Confidence',
+      probability: 'Probability',
+    };
+    return labels[key] ?? key.replace(/_/g, ' ').replace(/\b\w/g, (s) => s.toUpperCase());
+  };
+
+  /** Execution steps as array of strings. */
+  const getExecutionStepsList = (c: RiskCaseRow): string[] => {
+    const s = c.execution_steps;
+    if (Array.isArray(s)) return s.map((x: any) => typeof x === 'string' ? x : String(x ?? ''));
+    if (s && typeof s === 'object') return [];
+    return [];
+  };
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -119,18 +165,25 @@ export default function RiskCases() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {cases.map((c) => {
-                const open = expandedId === c.case_id;
+              {cases.map((c, idx) => {
+                const caseId = c.case_id ?? (c as any).id ?? `case-${idx}`;
+                const open = expandedId === caseId;
                 const score = overallScore(c);
                 return (
-                  <Fragment key={c.case_id}>
+                  <Fragment key={caseId}>
                     <tr
-                      key={c.id}
                       className="hover:bg-slate-50/50 cursor-pointer"
-                      onClick={() => setExpandedId(open ? null : c.case_id)}
+                      onClick={() => setExpandedId(open ? null : caseId)}
                     >
                       <td className="px-4 py-3">{open ? <ChevronDown size={18} /> : <ChevronRight size={18} />}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{c.case_id}</td>
+                      <td className="px-4 py-3 font-mono text-xs">
+                        {c.case_id && (
+                          <Link to={`/cases/${c.case_id}`} className="text-blue-600 hover:underline inline-flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                            {c.case_id} <ExternalLink size={12} />
+                          </Link>
+                        )}
+                        {!c.case_id && <span>{caseId}</span>}
+                      </td>
                       <td className="px-4 py-3 font-medium text-slate-900 max-w-xs truncate">{c.headline || c.case_id}</td>
                       <td className="px-4 py-3">
                         <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs font-medium">
@@ -161,44 +214,103 @@ export default function RiskCases() {
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
                             <div>
                               <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Scores breakdown</h4>
-                              <pre className="bg-white p-3 rounded border border-slate-200 text-xs overflow-x-auto">
-                                {JSON.stringify(c.scores || {}, null, 2)}
-                              </pre>
+                              <div className="flex flex-wrap gap-2">
+                                {c.scores && typeof c.scores === 'object' && Object.entries(c.scores).map(([key, val]) => {
+                                  if (val === null || val === undefined || typeof val === 'object') return null;
+                                  const n = typeof val === 'number' ? Math.round(val) : val;
+                                  return (
+                                    <span key={key} className={cn("inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-slate-100 text-slate-800", typeof n === 'number' && n >= 70 && 'bg-rose-100 text-rose-800', typeof n === 'number' && n >= 40 && n < 70 && 'bg-amber-100 text-amber-800')}>
+                                      <span className="text-slate-500">{scoreLabel(key)}:</span>
+                                      <span className="font-semibold">{String(n)}</span>
+                                    </span>
+                                  );
+                                })}
+                                {(!c.scores || typeof c.scores !== 'object' || Object.keys(c.scores).length === 0) && (
+                                  <span className="text-slate-500 text-xs">No scores</span>
+                                )}
+                              </div>
                             </div>
                             <div>
                               <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Hypotheses chain</h4>
                               <ul className="list-disc list-inside space-y-1 text-slate-700">
-                                {(c.hypotheses || []).map((h: any, i: number) => (
-                                  <li key={i}>{h.title || ''} {h.description ? `— ${h.description}` : ''}</li>
+                                {getHypothesesList(c).map((h, i) => (
+                                  <li key={i}>{h.title ? `${h.title} — ` : ''}{h.description || '—'}</li>
                                 ))}
-                                {(!c.hypotheses || c.hypotheses.length === 0) && <li className="text-slate-500">—</li>}
+                                {getHypothesesList(c).length === 0 && <li className="text-slate-500">—</li>}
                               </ul>
                             </div>
                             <div className="md:col-span-2">
                               <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Recommended plan</h4>
-                              <p className="text-slate-700">{c.recommended_plan || '—'}</p>
-                              {c.alternative_plans && c.alternative_plans.length > 0 && (
+                              {(() => {
+                                const plan = getRecommendedPlan(c);
+                                if (!plan) return <p className="text-slate-500 text-sm">—</p>;
+                                const name = plan.name || plan.plan_id || 'Recommended plan';
+                                const actions = Array.isArray(plan.actions) ? plan.actions : [];
+                                return (
+                                  <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3 text-sm">
+                                    <div className="font-semibold text-slate-900">{name}</div>
+                                    {actions.length > 0 && (
+                                      <ul className="list-disc list-inside space-y-1 text-slate-700">
+                                        {actions.map((a: string, i: number) => (
+                                          <li key={i}>{a}</li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                    <div className="flex flex-wrap gap-3 text-slate-600">
+                                      {plan.expected_cost_usd != null && <span>Expected cost: <span className="font-medium text-slate-800">${Number(plan.expected_cost_usd).toLocaleString()}</span></span>}
+                                      {plan.expected_loss_prevented_usd != null && <span>Loss prevented: <span className="font-medium text-slate-800">${Number(plan.expected_loss_prevented_usd).toLocaleString()}</span></span>}
+                                      {plan.expected_delay_days != null && <span>Delay: <span className="font-medium text-slate-800">{plan.expected_delay_days} days</span></span>}
+                                      {plan.service_level != null && <span>Service level: <span className="font-medium text-slate-800">{(Number(plan.service_level) * 100).toFixed(0)}%</span></span>}
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                              {Array.isArray(c.alternative_plans) && c.alternative_plans.length > 0 && (
                                 <>
-                                  <h4 className="text-xs font-bold text-slate-500 uppercase mb-2 mt-3">Alternative plans</h4>
-                                  <pre className="bg-white p-3 rounded border border-slate-200 text-xs overflow-x-auto">
-                                    {JSON.stringify(c.alternative_plans, null, 2)}
-                                  </pre>
+                                  <h4 className="text-xs font-bold text-slate-500 uppercase mb-2 mt-4">Alternative plans</h4>
+                                  <div className="space-y-3">
+                                    {c.alternative_plans.map((alt: any, idx: number) => {
+                                      const ap = typeof alt === 'object' ? alt : {};
+                                      const aname = ap.name || ap.plan_id || `Option ${idx + 1}`;
+                                      const aactions = Array.isArray(ap.actions) ? ap.actions : [];
+                                      return (
+                                        <div key={idx} className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm">
+                                          <div className="font-medium text-slate-800 mb-1">{aname}</div>
+                                          {aactions.length > 0 && (
+                                            <ul className="list-disc list-inside text-slate-600 text-xs space-y-0.5 mb-2">
+                                              {aactions.map((a: string, i: number) => <li key={i}>{a}</li>)}
+                                            </ul>
+                                          )}
+                                          <div className="flex flex-wrap gap-2 text-xs text-slate-500">
+                                            {ap.expected_cost_usd != null && <span>Cost: ${Number(ap.expected_cost_usd).toLocaleString()}</span>}
+                                            {ap.expected_loss_prevented_usd != null && <span>Loss prevented: ${Number(ap.expected_loss_prevented_usd).toLocaleString()}</span>}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </>
                               )}
                             </div>
                             <div className="md:col-span-2">
                               <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Execution steps</h4>
-                              <pre className="bg-white p-3 rounded border border-slate-200 text-xs overflow-x-auto">
-                                {JSON.stringify(c.execution_steps || [], null, 2)}
-                              </pre>
+                              {getExecutionStepsList(c).length > 0 ? (
+                                <ol className="list-decimal list-inside space-y-1.5 text-sm text-slate-700 bg-white border border-slate-200 rounded-lg p-4">
+                                  {getExecutionStepsList(c).map((step, i) => (
+                                    <li key={i}>{step}</li>
+                                  ))}
+                                </ol>
+                              ) : (
+                                <p className="text-slate-500 text-sm">No execution steps recorded.</p>
+                              )}
                             </div>
                             <div className="md:col-span-2">
                               <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Audit trail</h4>
-                              {(!auditByCase[c.case_id] || auditByCase[c.case_id].length === 0) && <p className="text-slate-500">No audit_log entries for this case.</p>}
-                              {auditByCase[c.case_id]?.length > 0 && (
+                              {(!auditByCase[caseId] || auditByCase[caseId].length === 0) && <p className="text-slate-500">No audit_log entries for this case.</p>}
+                              {auditByCase[caseId]?.length > 0 && (
                                 <ul className="space-y-1 text-xs">
-                                  {auditByCase[c.case_id].map((a: any) => (
-                                    <li key={a.id} className="flex gap-2">
+                                  {auditByCase[caseId].map((a: any, ai: number) => (
+                                    <li key={a?.id ?? `audit-${ai}`} className="flex gap-2">
                                       <span className="text-slate-500">{a.created_at ? format(new Date(a.created_at), 'yyyy-MM-dd HH:mm:ss') : ''}</span>
                                       <span className="font-medium">{a.event_type}</span>
                                       <span className="text-slate-600">{a.actor || ''}</span>

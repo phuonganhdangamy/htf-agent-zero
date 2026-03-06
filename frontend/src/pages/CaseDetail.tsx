@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import axios from 'axios';
 import type { ChangeProposal } from '../types';
 import { ArrowLeft, CheckCircle, XCircle, Clock, FileText } from 'lucide-react';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 export default function CaseDetail() {
     const { id } = useParams();
@@ -16,17 +19,53 @@ export default function CaseDetail() {
         }
     }, [id]);
 
-    const fetchCaseDetails = async (caseId: string) => {
+    const fetchCaseDetails = async (caseIdOrUuid: string) => {
         try {
             setLoading(true);
-            const [caseRes, proposalsRes] = await Promise.all([
-                supabase.from('risk_cases').select('*').eq('case_id', caseId).single(),
-                supabase.from('change_proposals').select('*').in('status', ['pending', 'approved', 'rejected']) // simplified relation
-            ]);
+            let caseData: any = null;
 
-            if (caseRes.data) setRiskCase(caseRes.data);
-            if (proposalsRes.data) setProposals(proposalsRes.data);
+            if (supabase) {
+                const byCaseId = await supabase.from('risk_cases').select('*').eq('case_id', caseIdOrUuid).maybeSingle();
+                if (byCaseId.data) {
+                    caseData = byCaseId.data;
+                } else {
+                    const byId = await supabase.from('risk_cases').select('*').eq('id', caseIdOrUuid).maybeSingle();
+                    if (byId.data) caseData = byId.data;
+                }
+            }
 
+            if (!caseData) {
+                try {
+                    const { data } = await axios.get(`${API_BASE}/api/agent/cases/${caseIdOrUuid}`);
+                    caseData = data;
+                } catch (_) {
+                    /* 404 or network – keep caseData null */
+                }
+            }
+
+            setRiskCase(caseData);
+
+            if (!caseData) {
+                setProposals([]);
+                return;
+            }
+
+            const caseId = caseData.case_id;
+            let runIds: string[] = [];
+            if (supabase) {
+                const runsRes = await supabase.from('action_runs').select('action_run_id').eq('case_id', caseId);
+                runIds = (runsRes.data || []).map((r: any) => r.action_run_id).filter(Boolean);
+            }
+            if (runIds.length === 0 || !supabase) {
+                setProposals([]);
+                return;
+            }
+            const proposalsRes = await supabase
+                .from('change_proposals')
+                .select('*')
+                .in('action_run_id', runIds)
+                .in('status', ['pending', 'approved', 'rejected']);
+            setProposals(proposalsRes.data || []);
         } catch (err) {
             console.error(err);
         } finally {
@@ -58,9 +97,20 @@ export default function CaseDetail() {
                         <h1 className="text-2xl font-bold text-slate-900">{riskCase.headline}</h1>
                         <p className="text-slate-500 mt-1">Case ID: {riskCase.case_id} • Category: {riskCase.risk_category}</p>
                     </div>
-                    <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-semibold capitalize">
-                        {riskCase.status}
-                    </span>
+                    <div className="flex items-center gap-2">
+                        {(() => {
+                            const s = riskCase.scores || {};
+                            const score = typeof s.overall_risk === 'number' ? s.overall_risk : typeof s.overall === 'number' ? s.overall : null;
+                            return score != null ? (
+                                <span className="px-3 py-1 rounded-full text-sm font-bold bg-slate-100 text-slate-800">
+                                    Overall score: {score}
+                                </span>
+                            ) : null;
+                        })()}
+                        <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-semibold capitalize">
+                            {riskCase.status}
+                        </span>
+                    </div>
                 </div>
 
                 <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">

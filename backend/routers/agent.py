@@ -84,6 +84,8 @@ def get_cases(status: Optional[str] = None, limit: int = 10, order: str = "creat
 def get_case(case_id: str):
     response = supabase.table("risk_cases").select("*").eq("case_id", case_id).execute()
     if not response.data:
+        response = supabase.table("risk_cases").select("*").eq("id", case_id).execute()
+    if not response.data:
         raise HTTPException(status_code=404, detail="Risk Case not found")
     return response.data[0]
 

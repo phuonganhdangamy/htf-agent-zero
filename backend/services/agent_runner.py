@@ -131,6 +131,36 @@ Output ONLY valid JSON matching this exact schema:
 }"""
 
 
+def _normalize_hypotheses(hypotheses: Any) -> list:
+    """Convert hypotheses to UI-friendly array of { title, description } for storage."""
+    if hypotheses is None:
+        return []
+    if isinstance(hypotheses, list):
+        out = []
+        for h in hypotheses:
+            if isinstance(h, dict):
+                out.append({
+                    "title": h.get("title") or h.get("name") or "",
+                    "description": h.get("description") or h.get("summary") or str(h.get("step", ""))
+                })
+            else:
+                out.append({"title": "", "description": str(h)})
+        return out
+    if isinstance(hypotheses, dict):
+        chain = hypotheses.get("chain")
+        if isinstance(chain, list):
+            return [
+                {"title": f"Step {i + 1}", "description": str(step)}
+                for i, step in enumerate(chain)
+            ]
+        # single hypothesis object
+        return [{
+            "title": hypotheses.get("title") or hypotheses.get("name") or "Hypothesis",
+            "description": hypotheses.get("description") or hypotheses.get("summary") or str(chain) if chain else ""
+        }]
+    return []
+
+
 def _directives_prompt_block(directives: Optional[Dict[str, bool]], cost_cap_override: Optional[float]) -> str:
     """Build prompt block for active system directives and cost cap."""
     lines = []
@@ -252,7 +282,7 @@ Live operational context (already filtered by focus suppliers/materials if provi
         "status": "open",
         "scores": payload.get("scores"),
         "exposure": payload.get("exposure"),
-        "hypotheses": payload.get("hypotheses"),
+        "hypotheses": _normalize_hypotheses(payload.get("hypotheses")),
         "recommended_plan": json.dumps(rec) if isinstance(rec, dict) else (rec if isinstance(rec, str) else ""),
         "alternative_plans": payload.get("alternative_plans") or [],
         "reasoning_summary": reasoning_summary,
