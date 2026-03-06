@@ -2,74 +2,55 @@
 
 ## High-Level Pipeline
 
-Omni consists of five primary agent layers, implemented via the Google Gen AI SDK (ADK). The system continuously polls for external disruptions, reasons about supply chain exposure, generates mitigation plans, and stages ERP changes for human approval.
+Omni is designed around five agent layers (Perception → Reasoning → Planning → Action → Reflection). The **current production path** for Live Simulation uses a **direct Gemini risk-assessment flow** that reads live Supabase data and returns a RiskCase; the full ADK pipeline is implemented in code but not yet the primary execution path for the Run Cycle button.
 
 ```mermaid
 graph TD
-    A[Mock ERP Database] -->|Realtime Webhooks| B(Event Trigger)
-    B --> C{Perception Layer}
-    
-    subgraph 1. Perception Layer
-    C1[Normalizer Agent]
-    C2[GDELT Tool]
-    C3[GDACS Tool]
-    C4[OpenWeather Tool]
-    C --> C1
-    C1 --> C2 & C3 & C4
-    C1 -->|Outputs| D[Signal Events]
-    end
+    A[(Supabase: suppliers, inventory, POs, memory)] --> B(Live Simulation / Run Cycle)
+    B --> C[agent_runner: build context]
+    C --> D[Gemini: RiskCase JSON]
+    D --> E[Save risk_cases + action_runs + change_proposals]
+    E --> F[Frontend: poll cases, show result, approval bar]
 
-    D --> E{Reasoning Layer}
-    subgraph 2. Reasoning Layer
-    E1[Cluster Agent]
-    E2[Exposure Agent]
-    E3[Hypothesis Agent]
-    E4[Scoring Agent]
-    E --> E1 & E2
-    E1 & E2 --> E3 --> E4
-    E4 -->|Outputs| F[Risk Cases]
+    subgraph "ADK pipeline (built, not primary for Run Cycle)"
+    G[Perception] --> H[Reasoning]
+    H --> I[Planning]
+    I --> J[Action]
+    J --> K[Reflection]
     end
-
-    F --> G{Planning Layer}
-    subgraph 3. Planning Layer
-    G1[Plan Generator]
-    G2[Scenario Simulator]
-    G3[Optimization Engine]
-    G4[Execution Planner]
-    G --> G1 --> G2 --> G3 --> G4
-    G4 -->|Outputs| H[Candidate Plans]
-    end
-
-    H --> I{Action Layer}
-    subgraph 4. Action Layer
-    I1[Change Proposal Agent]
-    I2[Drafting Agent]
-    I3[Approval Gate]
-    I4[Commit Agent]
-    I5[Verification Agent]
-    I6[Audit Agent]
-    
-    I --> I1 --> I2 --> I3
-    I3 -->|HITL Approval| I4 --> I5 --> I6
-    end
-    
-    I6 -->|Updates| A
-    I6 --> J{Reflection Layer}
-    
-    subgraph 5. Reflection Layer
-    J1[Outcome Evaluator]
-    J2[Lesson Extractor]
-    J --> J1 --> J2
-    end
-    
-    J2 -->|Updates| K[(Vector Memory)]
-    K -.->|Retrieval| G1
 ```
 
-## Agent Responsibilities
+## What Is Implemented Today
 
-1. **Perception**: Interacts with the outside world via `FunctionTool` calls to public APIs (OpenWeather, GDACS, GDELT). Normalizes disparate news into standard `SignalEvent` models stored in Supabase.
-2. **Reasoning**: Fuses multiple `SignalEvents` into distinct `EventClusters`. Maps these clusters to internal ERP entities (Suppliers, Routes, Facilities) to calculate exposure. Evaluates a mathematical risk score based on the `/agents/reasoning/risk_policy.yaml`.
-3. **Planning**: Uses the `/agents/planning/action_library.yaml` to propose concrete mitigation strategies (e.g., Expedite Air Freight, Reroute Shipment). Simulates the cost/benefit of each plan and selects a recommended course of action.
-4. **Action**: Translates the high-level plan into a literal JSON diff against the ERP API schema (`ChangeProposal`). Blocks on human-in-the-loop (HITL) authorization. If approved, executes the change, verifies the state, and writes to an immutable Audit Log.
-5. **Reflection**: Compares the predicted risk reduction to the actual observed reality. Extracts generalized patterns (e.g., "Air freight during typhoons is less effective") and stores them in Supabase, which the Planning layer consults on future runs.
+| Layer / Component | Status | Notes |
+|-------------------|--------|--------|
+| **Live Simulation risk assessment** | ✅ | Real data from Supabase → Gemini prompt → parse JSON → save `risk_cases`; sliders influence scores; approval bar from `recommended_plan`. |
+| **Configuration** | ✅ | Company profile (memory_preferences), Suppliers and Facilities CRUD from Supabase. |
+| **Risk Cases tab** | ✅ | Table + inline expand; scores, hypotheses, plans, execution steps, audit trail; Supabase or API fallback. |
+| **Activity Log** | ✅ | `audit_log` table; auto-refresh; case_id links. |
+| **Chatbot** | ✅ | Internal data + optional commodity prices (Alpha Vantage) + Google Search grounding; `POST /api/chat`. |
+| **Events Feed** | ✅ | Reads `signal_events`. |
+| **Actions / Approvals** | ✅ | List pending `change_proposals`; approve/reject via API; no commit execution yet. |
+| **ADK agent definitions** | ✅ | Perception, Reasoning (cluster, exposure, hypothesis, scoring), Planning, Action (change proposal, drafting, approval, commit, verification, audit), Reflection; all use valid LlmAgent/SequentialAgent/ParallelAgent params. |
+| **Full ADK pipeline execution** | ⏳ | Pipeline is built in `root_agent.py` but Run Cycle uses `agent_runner.run_risk_assessment()` instead. Full pipeline can be wired for batch/scheduled runs. |
+| **Action layer execution** | ⏳ | Change proposals are created and approved in UI; **commit to ERP**, **verification**, and **audit** are not yet triggered end-to-end. |
+| **Draft emails / notifications** | ⏳ | Drafting Agent and `draft_artifacts` exist; no UI to view or send drafts. |
+| **User notifications (ping)** | ⏳ | No email or in-app ping when cases or proposals are created. |
+
+## Agent Responsibilities (Reference)
+
+1. **Perception** — External signals (GDACS, GDELT, OpenWeather, etc.) via tools; normalizer writes `signal_events` to Supabase.
+2. **Reasoning** — Cluster signals, exposure mapping, hypothesis and scoring; produces RiskCase (in full ADK flow).
+3. **Planning** — Action library + scenario simulation; recommended and alternative plans.
+4. **Action** — Change proposal → drafting → HITL approval → commit → verification → audit. **Currently**: proposals created and approved; commit/verify/audit need to be wired.
+5. **Reflection** — Outcome evaluation and lesson extraction into memory for future planning.
+
+## Next Steps (Architecture)
+
+- **Incorporate action layer end-to-end**: On approve, call Commit Agent (or equivalent) to push changes to ERP; then Verification and Audit agents, and write `audit_log` with `case_id`.
+- **Draft emails**: Surface `draft_artifacts` in UI; allow “Send” or edit-then-send (e.g. via email API or Slack).
+- **Ping notifications**: On new high-severity risk case or pending proposal, notify configured users (email, in-app, or webhook).
+- **Optional full ADK run**: Use `run_omni_pipeline` (or equivalent) for scheduled/batch runs so Perception → Reflection runs with real tool calls and shared state.
+- **Context propagation**: Ensure `case_id` / `proposal_id` are passed through the pipeline and appear in `audit_log` and approval flows.
+
+For UI-to-API and table mapping, see `ui-mapping.md`.
