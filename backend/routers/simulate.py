@@ -202,10 +202,12 @@ def run_action(plan_options: Dict[str, Any]):
         proposal_id = f"PROP-{str(uuid.uuid4())[:8].upper()}"
         
         try:
+            from backend.services.agent_runner import DEFAULT_ACTION_RUN_STEPS
             supabase.table("action_runs").insert({
                 "action_run_id": action_run_id,
                 "case_id": "CASE-SIMULATION",  # Usually passed from previous step
-                "status": "drafted"
+                "status": "drafted",
+                "steps": DEFAULT_ACTION_RUN_STEPS,
             }).execute()
             
             supabase.table("change_proposals").insert({
