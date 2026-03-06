@@ -483,15 +483,25 @@ export default function ActionsApproval() {
                                             </div>
                                         </td>
                                         <td className="px-6 py-4 align-top">
-                                            <span className={cn(
-                                                "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider w-max",
-                                                act.status === 'pending' ? "bg-amber-100 text-amber-700" :
-                                                    act.status === 'approved' ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
-                                            )}>
-                                                {act.status === 'pending' && <Clock size={12} />}
-                                                {act.status === 'approved' && <CheckCircle2 size={12} />}
-                                                {act.status}
-                                            </span>
+                                            <div className="flex flex-col gap-1.5">
+                                                <span className={cn(
+                                                    "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider w-max",
+                                                    act.status === 'pending' ? "bg-amber-100 text-amber-700" :
+                                                        act.status === 'approved' ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+                                                )}>
+                                                    {act.status === 'pending' && <Clock size={12} />}
+                                                    {act.status === 'approved' && <CheckCircle2 size={12} />}
+                                                    {act.status}
+                                                </span>
+                                                {act.status === 'pending' && (() => {
+                                                    const waitingStep = steps.find(s => s.status === 'PENDING');
+                                                    return waitingStep ? (
+                                                        <span className="text-[11px] text-slate-500 leading-snug max-w-[160px]">
+                                                            Waiting for: {waitingStep.description || waitingStep.name}
+                                                        </span>
+                                                    ) : null;
+                                                })()}
+                                            </div>
                                         </td>
                                         <td className="px-6 py-4 text-slate-500 align-top">
                                             {act.created_at ? format(new Date(act.created_at), 'MMM d, HH:mm') : 'Unknown'}
