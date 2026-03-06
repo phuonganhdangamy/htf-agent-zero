@@ -14,13 +14,21 @@ def check_and_alert(company_id: str = "ORG_DEMO") -> Dict[str, Any]:
     """
     alerts_created = 0
 
+    # Fetch company's notification_threshold (default 60)
+    try:
+        prefs_res = supabase.table("memory_preferences").select("objectives").eq("org_id", company_id).maybeSingle().execute()
+        objectives = (prefs_res.data or {}).get("objectives") or {}
+        notification_threshold = float(objectives.get("notification_threshold", 60))
+    except Exception:
+        notification_threshold = 60.0
+
     # 1. Critical/high-scoring risk cases that have no approved proposals yet
     try:
         cases_res = supabase.table("risk_cases").select("case_id, headline, scores, status").eq("status", "open").execute()
         for case in (cases_res.data or []):
             score = (case.get("scores") or {}).get("overall", 0) or 0
-            if score >= 75:
-                severity = "critical" if score >= 90 else "high"
+            if score >= notification_threshold:
+                severity = "critical" if score >= 90 else "high" if score >= 75 else "elevated"
                 # Avoid duplicate alerts: skip if an unread alert already exists for this case
                 existing = supabase.table("alerts").select("id").eq("case_id", case["case_id"]).eq("read", False).execute()
                 if not (existing.data):

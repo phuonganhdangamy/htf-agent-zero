@@ -216,7 +216,8 @@ Live operational context (already filtered by focus suppliers/materials if provi
             text = text[start:end] if end > start else text
         payload = json.loads(text)
 
-    case_id = payload.get("case_id") or f"RC_{int(time.time())}_{str(uuid.uuid4())[:6].upper()}"
+    # Always generate server-side to guarantee uniqueness (Gemini uses timestamp-only IDs that collide)
+    case_id = f"RC_{int(time.time())}_{str(uuid.uuid4())[:6].upper()}"
     payload["case_id"] = case_id
 
     # Influence scores by sliders
@@ -299,6 +300,18 @@ Best regards,
 Omni Supply Chain Intelligence
 Omni Manufacturing — Procurement Operations"""
 
+    # Attach artifact_id to DraftingAgent step (index 1)
+    steps_with_artifact = [dict(s) for s in DEFAULT_ACTION_RUN_STEPS]
+    steps_with_artifact[1]["artifact_id"] = artifact_id
+
+    # Insert action_run FIRST (draft_artifacts has FK on action_run_id)
+    supabase.table("action_runs").insert({
+        "action_run_id": action_run_id,
+        "case_id": case_id,
+        "status": "drafted",
+        "steps": steps_with_artifact,
+    }).execute()
+
     draft_preview = f"TO: {to_email}\nSUBJECT: {subject}\n\n{body}"
     supabase.table("draft_artifacts").insert({
         "artifact_id": artifact_id,
@@ -311,16 +324,6 @@ Omni Manufacturing — Procurement Operations"""
             "body": body,
         },
         "status": "draft",
-    }).execute()
-
-    # Attach artifact_id to DraftingAgent step (index 1)
-    steps_with_artifact = [dict(s) for s in DEFAULT_ACTION_RUN_STEPS]
-    steps_with_artifact[1]["artifact_id"] = artifact_id
-    supabase.table("action_runs").insert({
-        "action_run_id": action_run_id,
-        "case_id": case_id,
-        "status": "drafted",
-        "steps": steps_with_artifact,
     }).execute()
     supabase.table("change_proposals").insert({
         "proposal_id": proposal_id,
