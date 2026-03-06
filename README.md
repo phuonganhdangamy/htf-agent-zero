@@ -105,285 +105,351 @@ These capabilities align with the goal of creating a proactive AI system that de
 
 ---------------------------------------------------------------------
 
-## System Architecture
+## Agent Architecture Mapping
 
-The system follows a **modular agent architecture** that separates responsibilities across layers.  
-This ensures transparency, reliability, and controllability of the AI system.
+The system is implemented as a **multi-agent pipeline** orchestrated using Google ADK.  
+Each layer contains specialized agents responsible for a well-defined step in the supply chain risk analysis workflow.
 
-Architecture Flow:
+Architecture Flow
 
+External Signals  
+        ↓
 Perception Layer  
-        ↓  
+        ↓
 Reasoning Layer  
-        ↓  
+        ↓
 Planning Layer  
-        ↓  
+        ↓
 Action Layer  
-        ↓  
-Reflection + Memory Layer
-
-
-Each layer contains specialized agents responsible for a specific task within the decision pipeline.
+        ↓
+Reflection + Memory
 
 
 ---------------------------------------------------------------------
 
-## Perception Layer
+## Layer 1 — Perception Layer
 
-### Goal
-Transform raw external signals into structured disruption events relevant to the manufacturer.
+Purpose  
+Convert raw global signals into structured disruption events relevant to the manufacturer.
 
-### Responsibilities
+Agent Type  
+LLM Agents + Tool Agents
 
-• Ingest external data sources (news APIs, global event datasets)  
-• Extract geographic location, event type, severity indicators, and evidence  
-• Map events to supplier locations or logistics routes  
-• Convert raw signals into structured disruption records  
+Agents
 
-### Agents
+1. News Monitoring Agent  
+Type: Tool Agent  
+Tools: News APIs, GDELT, event datasets
 
-News Monitoring Agent  
-Scans global news feeds and event datasets to detect potential disruptions such as port strikes, geopolitical conflict, natural disasters, or policy changes.
+Responsibilities
+• Continuously monitor global news and disruption signals  
+• Detect events such as strikes, geopolitical conflict, port congestion, natural disasters  
+• Collect raw text signals and metadata
 
-Event Structuring Agent  
-Uses an LLM to convert raw text signals into structured JSON events containing location, disruption type, severity indicators, and source evidence.
+Input
+News feeds, global event datasets
 
-Supplier Mapping Agent  
-Matches disruption events with supplier locations, manufacturing facilities, and logistics routes to determine operational relevance.
+Output
+Raw disruption signals
 
-### Example Output
+
+2. Event Structuring Agent  
+Type: LLM Agent
+
+Responsibilities
+• Convert raw news signals into structured disruption events  
+• Extract event type, location, severity indicators, and source evidence  
+• Produce structured JSON outputs
+
+Input
+Raw event text
+
+Output
 
 {
   event_type: "Port Strike",
   location: "Rotterdam",
-  affected_supplier: "Supplier A",
-  disruption_severity: "High",
-  evidence_links: [source_urls]
+  event_date: "2026-03-02",
+  disruption_category: "Logistics",
+  evidence_sources: [urls]
 }
 
 
----------------------------------------------------------------------
+3. Supplier Mapping Agent  
+Type: Tool Agent
 
-## Reasoning Layer
+Responsibilities
+• Map disruption events to supplier locations and logistics routes  
+• Identify which manufacturers are affected
 
-### Goal
-Interpret structured disruption signals and determine their operational risk.
+Input
+Structured disruption event
 
-### Responsibilities
+Tools
+Supplier database  
+ERP supplier location data
 
-• Evaluate disruption severity and probability  
-• Incorporate business context such as supplier dependency and inventory levels  
-• Estimate operational impact  
-• Compute a risk score for the disruption
-
-### Agents
-
-Severity Classification Agent  
-Determines disruption severity using structured event data and contextual signals.
-
-Risk Scoring Agent  
-Applies business rules and operational data to calculate a disruption risk score.
-
-Impact Assessment Agent  
-Estimates operational consequences such as production delays, revenue exposure, or service level violations.
-
-### Output
-
-Structured risk assessment including:
-
-• Disruption probability  
-• Impact severity  
-• Operational exposure  
-• Overall risk score
+Output
+Supplier impact mapping
 
 
 ---------------------------------------------------------------------
 
-## Planning Layer
+## Layer 2 — Reasoning Layer
 
-### Goal
-Generate mitigation strategies and evaluate trade-offs before action is taken.
+Purpose  
+Assess the operational risk of detected disruption events.
 
-### Responsibilities
+Agent Type  
+LLM Agent + Rule-based Agent
 
-• Simulate mitigation options  
-• Compare trade-offs between cost, service level, and resilience  
-• Produce an ordered mitigation plan
+Agents
 
-### Agents
+4. Severity Classification Agent  
+Type: LLM Agent
 
-Scenario Simulation Agent  
-Simulates alternative operational strategies such as supplier switching or logistics rerouting.
+Responsibilities
+• Classify disruption severity  
+• Analyze tone, event scale, and frequency of mentions
 
-Optimization Agent  
-Evaluates trade-offs between operational cost, inventory buffers, and delivery timelines.
+Output
 
-Mitigation Planning Agent  
-Generates a recommended mitigation plan with step-by-step actions.
-
-
-### Example Plans
-
-• Increase inventory buffer by 10%  
-• Shift 30% of supplier volume to backup supplier  
-• Reroute shipments through alternate port  
+severity_score
+confidence_score
 
 
----------------------------------------------------------------------
+5. Risk Scoring Agent  
+Type: Rule-based Agent
 
-## Action Layer
+Responsibilities
+• Combine disruption severity with business context
+• Evaluate supplier dependency
+• Factor in inventory levels and lead time sensitivity
 
-### Goal
-Translate mitigation strategies into operational actions while maintaining human oversight.
+Input
 
-### Responsibilities
+severity_score  
+supplier_dependency  
+inventory_levels
 
-• Generate operational recommendations  
-• Draft communications  
-• Propose ERP system adjustments  
-• Trigger escalation alerts
+Output
 
-### Agents
+{
+  disruption_probability: 0.73,
+  operational_impact: "High",
+  risk_score: 0.82
+}
 
-Supplier Communication Agent  
-Generates draft emails for supplier coordination or contract renegotiation.
 
-ERP Adjustment Agent  
-Suggests updates to purchase orders, inventory policies, or production schedules.
+6. Impact Assessment Agent  
+Type: LLM Agent
 
-Escalation Agent  
-Alerts operations leadership when disruption risk exceeds predefined thresholds.
+Responsibilities
+• Estimate operational consequences
+• Identify production delays
+• Estimate revenue exposure
 
-### Example Actions
+Output
 
-• Draft supplier outreach email  
-• Flag purchase order adjustment  
-• Recommend inventory build  
-• Escalate to operations leadership
+• revenue_at_risk  
+• service_level_risk  
+• production_delay_estimate
 
 
 ---------------------------------------------------------------------
 
-## Reflection Layer
+## Layer 3 — Planning Layer
 
-### Goal
-Evaluate system decisions and validate outcomes before committing actions.
+Purpose  
+Generate mitigation strategies and evaluate operational trade-offs.
 
-### Responsibilities
+Agent Type  
+Planning Agent + Optimization Agent
 
-• Validate recommendations against operational constraints  
-• Check policy compliance  
-• Identify potential reasoning errors  
-• Decide whether human approval is required
+Agents
+
+7. Scenario Simulation Agent  
+Type: Planning Agent
+
+Responsibilities
+• Simulate alternative supply chain responses
+• Model supplier switching
+• Model logistics rerouting
+
+Output
+
+Possible mitigation scenarios
+
+
+8. Optimization Agent  
+Type: Custom Agent
+
+Responsibilities
+• Compare trade-offs between cost, service levels, and resilience
+• Rank mitigation strategies
+
+Output
+
+ranked mitigation plans
+
+
+9. Mitigation Planning Agent  
+Type: LLM Agent
+
+Responsibilities
+• Generate step-by-step mitigation plan
+• Explain reasoning behind recommendation
+
+Output
+
+Mitigation Plan
+
+Example
+
+1. Shift 25% of volume to Supplier B  
+2. Increase inventory buffer by 12%  
+3. Reroute shipments via alternate port
 
 
 ---------------------------------------------------------------------
 
-## Memory Layer
+## Layer 4 — Action Layer
 
-### Goal
-Enable continuous learning and improve future mitigation recommendations.
+Purpose  
+Translate mitigation plans into operational actions.
 
-### Responsibilities
+Agent Type  
+Workflow Agent
 
-• Store past disruption events  
-• Track mitigation success or failure  
+Agents
+
+10. Supplier Communication Agent  
+Type: LLM Agent
+
+Responsibilities
+• Draft supplier coordination emails
+• Generate negotiation messages
+• Provide outreach templates
+
+
+11. ERP Adjustment Agent  
+Type: Tool Agent
+
+Responsibilities
+• Suggest updates to purchase orders
+• Adjust inventory reorder thresholds
+• Propose production schedule changes
+
+
+12. Escalation Agent  
+Type: Workflow Agent
+
+Responsibilities
+• Trigger alerts for operations leadership
+• Escalate when risk exceeds thresholds
+
+Example Actions
+
+• Draft supplier email  
+• Flag ERP purchase order adjustment  
+• Recommend buffer stock increase  
+• Notify operations leadership
+
+
+---------------------------------------------------------------------
+
+## Layer 5 — Reflection Layer
+
+Purpose  
+Validate decisions before execution.
+
+Agent Type  
+LLM Agent
+
+Responsibilities
+
+• Validate mitigation plan against operational constraints  
+• Check compliance with business rules  
+• Ensure evidence supports recommendations  
+• Flag uncertain decisions for human approval
+
+
+---------------------------------------------------------------------
+
+## Layer 6 — Memory Layer
+
+Purpose  
+Enable learning from past disruptions.
+
+Agent Type  
+Memory System
+
+Responsibilities
+
+• Store disruption history  
+• Track mitigation outcomes  
 • Learn supplier reliability patterns  
-• Improve risk prediction models over time
+• Improve future risk predictions
 
-Memory enables the system to gradually refine decision strategies as it observes more disruptions.
+Stored Data
 
-
----------------------------------------------------------------------
-
-## Technology Stack
-
-Backend  
-Python
-
-Frontend  
-React
-
-Database  
-Supabase
-
-LLM Reasoning  
-Google Gemini
-
-Agent Framework  
-Google Agent Development Kit (ADK)
-
-Data Sources
-
-News APIs  
-GDELT global news dataset  
-Conflict and disaster event datasets  
-Supply chain datasets
+• past disruptions  
+• mitigation success rates  
+• supplier reliability scores
 
 
 ---------------------------------------------------------------------
 
-## Data Inputs
+## Orchestrator Agent
 
-The system requires operational context from the manufacturer, including:
+The entire pipeline is coordinated by an **Orchestration Agent**.
 
-Supplier Information  
-Supplier locations  
-Supplier dependency levels  
-Contract structures
+Responsibilities
 
-Operational Data  
-Inventory levels  
-Lead times  
-Production schedules  
-Service level agreements
+• Manage the workflow across agents  
+• Pass outputs between layers  
+• Trigger planning and mitigation workflows  
+• Maintain system state
 
-Logistics Data  
-Shipping routes  
-Ports used  
-Distribution centers
+This agent ensures the system follows the structured pipeline:
 
-External Signals  
-News reports  
-Natural disasters  
-Geopolitical conflict  
-Trade policy changes
+Perception → Reasoning → Planning → Action → Reflection → Memory
 
 
 ---------------------------------------------------------------------
 
-## Responsible AI Principles
+## Handoff Notes / Next Steps (Action Layer UI + Drafts)
 
-Reliability  
-The modular architecture ensures each component performs a clearly defined task that can be independently tested and validated.
+### Why “View Draft” may not appear yet
 
-Security  
-Operational actions are restricted by role-based permissions and approval workflows.
+The Actions UI shows a **“View Draft”** button only when the corresponding step in `action_runs.steps` contains an `artifact_id` (which references `draft_artifacts.artifact_id`).
 
-Human Oversight  
-High-impact decisions such as supplier changes or ERP modifications require human confirmation before execution.
+Right now, the **UI + step model support** exists, but the **runtime pipeline does not consistently run DraftingAgent** to generate a `draft_artifacts` row and attach it to `action_runs.steps`. As a result, steps often have no `artifact_id`, and the UI correctly hides the button.
 
-Transparency  
-The system produces explainable reasoning traces that justify risk assessments and mitigation plans.
+### Required behavior (target)
 
+- DraftingAgent must create a `draft_artifacts` row (type `email`) with `preview` content.
+- The draft must be attached to a step by writing `artifact_id` into `action_runs.steps[n].artifact_id`.
+- Step 4 (“CommitAgent — send email”) should **NOT send** an email yet; it should only attach the same draft to the step so the operator can review it.
 
----------------------------------------------------------------------
+### Implementation checklist
 
-## Future Extensions
+1. **Wire DraftingAgent into the runtime path that creates `action_runs`**
+   - In `backend/services/agent_runner.py`, after inserting `action_runs` + `change_proposals`, invoke DraftingAgent (or a lightweight drafting function) using the plan/proposal context.
+   - Ensure the draft row includes `action_run_id` so it is linked to the action run.
 
-Potential future capabilities include:
+2. **Ensure DraftingAgent attaches the draft to the step**
+   - `agents/action/drafting_agent.py` should:
+     - insert into `draft_artifacts`
+     - then update `action_runs.steps[1]` (Step 2) to `status='DONE'` and set `artifact_id=<inserted artifact_id>`.
 
-• Automated supplier discovery for backup sourcing  
-• Predictive disruption forecasting using historical data  
-• Integration with enterprise ERP platforms  
-• Reinforcement learning from mitigation outcomes  
-• Multi-company network risk modeling
+3. **Ensure Step 4 attaches the draft (do not send)**
+   - In `backend/services/action_orchestrator.py`, Step 4 should:
+     - fetch the latest email draft for the `action_run_id`
+     - write that `artifact_id` into `action_runs.steps[3].artifact_id`
+     - mark Step 4 as DONE
 
-
----------------------------------------------------------------------
-
-## Summary
-
-The Autonomous Supply Chain Resilience Agent demonstrates how AI agents can transform supply chain operations from reactive monitoring to proactive risk mitigation.
-
-By combining perception, reasoning, planning, and controlled action layers, the system functions as a strategic AI co-pilot that helps manufacturers maintain operational stability in an increasingly volatile global environment.
+4. **Confirm UI rendering expectations**
+   - In `frontend/src/pages/Actions.tsx`, “View Draft” renders when:
+     - `step.artifact_id` exists AND step is `DONE` or `PENDING`.
+   - Once steps contain `artifact_id`, expanding the Actions row should show “View Draft” and open a modal showing `draft_artifacts.preview`.

@@ -124,9 +124,11 @@ export default function ActionsApproval() {
 
     const handleStepApprove = async (actionRunId: string, stepIndex: number) => {
         try {
-            await axios.patch(`${API_BASE}/api/agent/action_runs/${actionRunId}/steps`, {
+            // Call orchestrator advance endpoint so we both mark the step DONE and
+            // run the next agent(s) according to the action layer spec.
+            await axios.post(`${API_BASE}/api/agent/action_runs/${actionRunId}/advance`, {
                 step_index: stepIndex,
-                status: 'DONE',
+                approved_by: 'Omni Admin',
             });
             fetchActions();
         } catch (err) {

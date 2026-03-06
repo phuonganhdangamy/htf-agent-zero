@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any, List
 from backend.services.supabase_client import supabase
 from backend.services.agent_runner import run_pipeline, rerun_plan_only, abandon_scenario
 from backend.services.action_steps import get_steps, update_step
+from backend.services.action_orchestrator import advance_after_approval
 
 router = APIRouter()
 
@@ -172,3 +173,23 @@ def patch_action_run_step(action_run_id: str, body: StepUpdateBody):
         artifact_id=body.artifact_id,
     )
     return {"action_run_id": action_run_id, "steps": updated}
+
+
+class AdvanceBody(BaseModel):
+    step_index: int
+    approved_by: str = "Omni Admin"
+
+
+@router.post("/action_runs/{action_run_id}/advance")
+def advance_action_run(action_run_id: str, body: AdvanceBody):
+    """
+    Called when a human approves a PENDING step in the action breakdown.
+    Marks the step DONE, unlocks the next step, and runs any automated agents
+    for the subsequent step(s) according to the action layer spec.
+    """
+    result = advance_after_approval(
+        action_run_id=action_run_id,
+        step_index=body.step_index,
+        approved_by=body.approved_by,
+    )
+    return result

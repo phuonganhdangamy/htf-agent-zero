@@ -38,6 +38,23 @@ def update_step(
     if artifact_id is not None:
         step["artifact_id"] = artifact_id
     steps[step_index] = step
+
+    # Workflow rules:
+    # - When a step is marked DONE, automatically unlock the next step by setting it to PENDING (if currently LOCKED).
+    # - When a step is rejected (LOCKED), lock all downstream steps.
+    if status == "DONE":
+        next_idx = step_index + 1
+        if next_idx < len(steps):
+            nxt = dict(steps[next_idx])
+            if (nxt.get("status") or "LOCKED") == "LOCKED":
+                nxt["status"] = "PENDING"
+                steps[next_idx] = nxt
+    elif status == "LOCKED":
+        for i in range(step_index + 1, len(steps)):
+            nxt = dict(steps[i])
+            nxt["status"] = "LOCKED"
+            steps[i] = nxt
+
     supabase.table("action_runs").update({
         "steps": steps,
         "updated_at": ts,
