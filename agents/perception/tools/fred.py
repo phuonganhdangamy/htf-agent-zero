@@ -4,14 +4,15 @@ import requests
 from google.adk.tools import FunctionTool
 
 @FunctionTool
-def fetch_macro_signals(indicators: list) -> str:
+def fetch_macro_signals(indicators: list[str]) -> str:
     """
     Fetches macroeconomic signals (like interest rates or inflation) from FRED.
     Requires FRED_API_KEY.
     """
     api_key = os.environ.get("FRED_API_KEY")
     if not api_key:
-        return json.dumps([{"error": "FRED_API_KEY missing in environment variables."}])
+        print("Warning: FRED_API_KEY missing.")
+        return json.dumps([])
         
     url = "https://api.stlouisfed.org/fred/series/observations"
     events = []
@@ -52,10 +53,10 @@ def fetch_macro_signals(indicators: list) -> str:
                 latest = observations[0]
                 events.append({
                     "title": f"Latest FRED {series_id} Data: {latest.get('value')}",
-                    "description": f"Macroeconomic indicator {series_id} is at {latest.get('value')} on {latest.get('date')}",
-                    "source": "FRED",
-                    "severity": "Low"
+                    "summary": f"Macroeconomic indicator {series_id} is at {latest.get('value')} on {latest.get('date')}",
+                    "source": "FRED"
                 })
         return json.dumps(events)
     except Exception as e:
-        return json.dumps([{"error": f"FRED API error: {str(e)}"}])
+        print(f"Warning: FRED API error: {str(e)}")
+        return json.dumps([])

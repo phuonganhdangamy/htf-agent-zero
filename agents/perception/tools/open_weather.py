@@ -4,14 +4,15 @@ import requests
 from google.adk.tools import FunctionTool
 
 @FunctionTool
-def fetch_weather_alerts(locations: list) -> str:
+def fetch_weather_alerts(locations: list[str]) -> str:
     """
     Fetches real-time weather alerts via OpenWeatherMap Geocoding + Current API.
     Requires OPENWEATHER_API_KEY.
     """
     api_key = os.environ.get("OPENWEATHER_API_KEY")
     if not api_key:
-        return json.dumps([{"error": "OPENWEATHER_API_KEY missing in environment variables."}])
+        print("Warning: OPENWEATHER_API_KEY missing.")
+        return json.dumps([])
         
     events = []
     
@@ -36,21 +37,15 @@ def fetch_weather_alerts(locations: list) -> str:
             wx_data = wx_res.json()
             
             for weather in wx_data.get("weather", []):
-                wid = weather.get("id", 800)
-                severity = "Low"
-                # Thunderstorms (2xx), extreme rain (504), snow (6xx)
-                if wid < 600 or wid in [771, 781]: 
-                    severity = "Medium"
-                
                 events.append({
                     "title": f"Weather in {loc}: {weather.get('main')}",
-                    "description": weather.get("description", "").capitalize(),
+                    "summary": weather.get("description", "").capitalize(),
                     "source": "OpenWeather",
-                    "severity": severity,
                     "lat": lat,
                     "lon": lon
                 })
                 
         return json.dumps(events)
     except Exception as e:
-        return json.dumps([{"error": f"OpenWeather API error: {str(e)}"}])
+        print(f"Warning: OpenWeather API error: {str(e)}")
+        return json.dumps([])

@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.routers import agent, erp, webhooks, events, actions
+from backend.routers import agent, erp, webhooks, events, actions, simulate
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,6 +20,7 @@ app.include_router(erp.router, prefix="/api/erp", tags=["ERP"])
 app.include_router(webhooks.router, prefix="/api/webhooks", tags=["Webhooks"])
 app.include_router(events.router, prefix="/api", tags=["Events"])
 app.include_router(actions.router, prefix="/api", tags=["Actions"])
+app.include_router(simulate.router, prefix="/api/simulate", tags=["Simulate"])
 
 @app.get("/health")
 def health_check():

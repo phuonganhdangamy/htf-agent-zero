@@ -63,6 +63,10 @@ export default function Sidebar() {
                         Quick Actions
                     </div>
                     <div className="space-y-1">
+                        <NavLink to="/simulation" className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium hover:bg-slate-800/50 hover:text-white text-emerald-400 group">
+                            <Activity size={18} className="group-hover:text-emerald-300" />
+                            Live Simulation
+                        </NavLink>
                         <NavLink to="/agent" className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium hover:bg-slate-800/50 hover:text-white text-blue-400 group">
                             <Bot size={18} className="group-hover:text-blue-300" />
                             Launch Omni Agent

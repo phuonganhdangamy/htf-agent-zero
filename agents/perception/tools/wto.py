@@ -4,14 +4,15 @@ import requests
 from google.adk.tools import FunctionTool
 
 @FunctionTool
-def fetch_wto_trade_restrictions(countries: list) -> str:
+def fetch_wto_trade_restrictions(countries: list[str]) -> str:
     """
     Fetches trade restrictions from the WTO API.
     Requires WTO_API_KEY.
     """
     api_key = os.environ.get("WTO_API_KEY")
     if not api_key:
-        return json.dumps([{"error": "WTO_API_KEY missing in environment variables."}])
+        print("Warning: WTO_API_KEY missing.")
+        return json.dumps([])
         
     url = "https://api.wto.org/timeseries/v1/data"
     events = []
@@ -36,11 +37,11 @@ def fetch_wto_trade_restrictions(countries: list) -> str:
         for item in dataset:
             events.append({
                 "title": "WTO Trade Data Update",
-                "description": f"Trade index updated for category: {item.get('IndicatorCategory', 'Unknown')}",
-                "source": "WTO",
-                "severity": "Low"
+                "summary": f"Trade index updated for category: {item.get('IndicatorCategory', 'Unknown')}",
+                "source": "WTO"
             })
             
         return json.dumps(events)
     except Exception as e:
-        return json.dumps([{"error": f"WTO API error: {str(e)}. Check your API key or endpoint access permissions."}])
+        print(f"Warning: WTO API error: {str(e)}")
+        return json.dumps([])

@@ -1,0 +1,2 @@
+ALTER TABLE signal_events ADD COLUMN IF NOT EXISTS title TEXT;
+ALTER TABLE signal_events ADD COLUMN IF NOT EXISTS summary TEXT;

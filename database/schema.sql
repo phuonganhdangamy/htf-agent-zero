@@ -131,6 +131,8 @@ create table signal_events (
   event_id text unique not null,
   event_type text,
   subtype text,
+  title text,
+  summary text,
   country text,
   region text,
   lat numeric,

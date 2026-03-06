@@ -15,15 +15,50 @@ def save_signal_events(events_json: str) -> str:
             return json.dumps({"error": "Expected a JSON list of events."})
             
         saved = 0
+        skipped = 0
         for ev in events:
             try:
-                # Supabase will complain if keys don't match, so we should clean it potentially.
-                # Assuming the LLM follows the db schema.
+                # Strip Reasoning Layer fields
+                for field in ['company_exposed', 'severity_score', 'risk_score']:
+                    if field in ev:
+                        del ev[field]
+                
+                # Normalize tone to numeric
+                if 'tone' in ev:
+                    tone_val = ev['tone']
+                    if isinstance(tone_val, str):
+                        t_lower = tone_val.lower()
+                        if 'negative' in t_lower:
+                            ev['tone'] = -1.0
+                        elif 'positive' in t_lower:
+                            ev['tone'] = 1.0
+                        elif 'neutral' in t_lower:
+                            ev['tone'] = 0.0
+                        else:
+                            try:
+                                ev['tone'] = float(tone_val)
+                            except ValueError:
+                                ev['tone'] = 0.0
+                
+                # Check for duplicate event_id
+                event_id = ev.get('event_id')
+                if not event_id:
+                    continue
+                    
+                existing = supabase.table("signal_events").select("id").eq("event_id", event_id).execute()
+                if existing.data and len(existing.data) > 0:
+                    skipped += 1
+                    continue
+                    
+                # Insert
                 supabase.table("signal_events").insert(ev).execute()
                 saved += 1
             except Exception as e:
-                print(f"Failed to insert event {ev.get('event_id', 'unknown')}: {e}")
+                print(f"Warning: Failed to insert event {ev.get('event_id', 'unknown')}: {e}")
                 
-        return json.dumps({"status": "success", "saved_count": saved})
+        summary = f"Summary: Saved {saved} events. Skipped {skipped} duplicates."
+        print(summary)
+        return json.dumps({"status": "success", "saved_count": saved, "skipped_count": skipped, "summary": summary})
     except Exception as e:
+        print(f"Warning: Normalizer error: {str(e)}")
         return json.dumps({"error": str(e)})

@@ -78,7 +78,9 @@ async def run_omni_pipeline(company_id: str, trigger: str, context: dict = None)
     # 1. Generate a mock Risk Case
     case_id = f"CASE-{str(uuid.uuid4())[:8].upper()}"
     supabase.table("risk_cases").insert({
+        "id": case_id,
         "case_id": case_id,
+        "cluster_id": "CLUSTER_001",
         "risk_category": "Supply Chain Disruption",
         "headline": f"Potential Disruption from Trigger: {trigger[:50]}...",
         "status": "open",

@@ -1,0 +1,29 @@
+Warning: there are non-text parts in the response: ['function_call', 'function_call', 'function_call', 'function_call', 'function_call', 'function_call'], returning concatenated text result from text parts. Check the full candidates.content.parts accessor to get the full model response.
+Starting standalone perception runner.
+Polling interval set to 30 minutes.
+
+[2026-03-05 16:20:56] Executing Perception Pipeline...
+Event author: normalizer_agent
+Tool Call: fetch_gdacs_alerts
+Tool Call: fetch_acled_conflict_events
+Tool Call: fetch_financial_news
+Tool Call: fetch_macro_signals
+Tool Call: fetch_weather_alerts
+Tool Call: fetch_wto_trade_restrictions
+Warning: ACLED API error: HTTPSConnectionPool(host='api.acleddata.com', port=443): Max retries exceeded with url: /acled/read?key=HackTheFuture26&email=anh.dangphuong%40mail.utoronto.ca&country=Taiwan&limit=5&format=json (Caused by NameResolutionError("HTTPSConnection(host='api.acleddata.com', port=443): Failed to resolve 'api.acleddata.com' ([Errno 11001] getaddrinfo failed)"))
+Warning: WTO API error: 400 Client Error: Bad Request for url: https://api.wto.org/timeseries/v1/data?i=HS_M_0010&r=all&p=all&fmt=json&max=5
+Event author: normalizer_agent
+Tool Response for fetch_gdacs_alerts
+Tool Response for fetch_acled_conflict_events
+Tool Response for fetch_financial_news
+Tool Response for fetch_macro_signals
+Tool Response for fetch_weather_alerts
+Tool Response for fetch_wto_trade_restrictions
+Event author: normalizer_agent
+Tool Call: save_signal_events
+Summary: Saved 9 events. Skipped 0 duplicates.
+Event author: normalizer_agent
+Tool Response for save_signal_events
+Event author: normalizer_agent
+Content: I processed 9 signal events and saved them to the database.
+Pipeline executed.

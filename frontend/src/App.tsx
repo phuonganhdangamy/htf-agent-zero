@@ -6,6 +6,7 @@ import RiskCases from './pages/RiskCases';
 import CaseDetail from './pages/CaseDetail';
 import ActionsApproval from './pages/Actions';
 import OmniAgentPanel from './components/OmniAgentPanel';
+import LiveSimulation from './pages/LiveSimulation';
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
         <Route path="cases/:id" element={<CaseDetail />} />
         <Route path="actions" element={<ActionsApproval />} />
         <Route path="agent" element={<OmniAgentPanel />} />
+        <Route path="simulation" element={<LiveSimulation />} />
       </Route>
     </Routes>
   );
