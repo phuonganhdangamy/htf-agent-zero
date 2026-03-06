@@ -1,7 +1,19 @@
 import json
+import os
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 import requests
+
+def _report_step_complete(action_run_id: str, step_index: int, status: str = "DONE") -> str:
+    """Write step status back to Supabase via backend API."""
+    base = os.environ.get("BACKEND_URL", "http://localhost:8000")
+    url = f"{base}/api/agent/action_runs/{action_run_id}/steps"
+    try:
+        r = requests.patch(url, json={"step_index": step_index, "status": status}, timeout=10)
+        return json.dumps({"status": "ok", "response": r.json() if r.ok else r.text})
+    except Exception as e:
+        return json.dumps({"error": str(e)})
+
 
 @FunctionTool
 def verify_erp_state(entity_type: str, entity_id: str) -> str:
@@ -23,6 +35,13 @@ def verify_erp_state(entity_type: str, entity_id: str) -> str:
     except Exception as e:
         return json.dumps({"error": str(e)})
 
+
+@FunctionTool
+def report_step_complete(action_run_id: str, step_index: int, status: str = "DONE") -> str:
+    """Call after verification completes to update action_runs.steps. step_index is 0-based (e.g. 7 for VerificationAgent step 8)."""
+    return _report_step_complete(action_run_id, step_index, status)
+
+
 def build_verification_agent() -> LlmAgent:
     return LlmAgent(
         name="verification_agent",
@@ -33,7 +52,8 @@ Your job is to:
 2. Call `verify_erp_state` to fetch the actual current state of the modified entity.
 3. Compare the two to ensure the operation succeeded.
 4. Output a Verification Report.
+5. Call report_step_complete(action_run_id, 7, "DONE") when verification is done (step 8 = index 7).
 """,
         model="gemini-2.5-flash",
-        tools=[verify_erp_state]
+        tools=[verify_erp_state, report_step_complete]
     )

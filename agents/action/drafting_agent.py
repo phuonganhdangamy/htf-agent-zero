@@ -2,6 +2,7 @@ import json
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
 from backend.services.supabase_client import supabase
+from backend.services.action_steps import update_step
 
 @FunctionTool
 def save_draft_artifact(artifact_json: str) -> str:
@@ -9,7 +10,12 @@ def save_draft_artifact(artifact_json: str) -> str:
     try:
         data = json.loads(artifact_json)
         res = supabase.table("draft_artifacts").insert(data).execute()
-        return json.dumps({"status": "success", "artifact_id": res.data[0].get("artifact_id") if res.data else None})
+        artifact_id = res.data[0].get("artifact_id") if res.data else None
+        action_run_id = data.get("action_run_id")
+        # Attach the draft to Step 2 (DraftingAgent) in action_runs.steps
+        if action_run_id and artifact_id:
+            update_step(action_run_id, 1, "DONE", artifact_id=artifact_id)
+        return json.dumps({"status": "success", "artifact_id": artifact_id})
     except Exception as e:
         return json.dumps({"error": str(e)})
 

@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from backend.services.supabase_client import supabase
 from backend.services.agent_runner import run_pipeline, rerun_plan_only, abandon_scenario
+from backend.services.action_steps import get_steps, update_step
+from backend.services.action_orchestrator import advance_after_approval
 
 router = APIRouter()
 
@@ -146,3 +148,48 @@ async def abandon_scenario_route(request: AbandonRequest):
 def get_audit(case_id: str):
     response = supabase.table("audit_log").select("*").eq("case_id", case_id).order("created_at", desc=True).execute()
     return response.data
+
+
+class StepUpdateBody(BaseModel):
+    step_index: int
+    status: str  # DONE | PENDING | LOCKED
+    timestamp: Optional[str] = None
+    artifact_id: Optional[str] = None
+
+
+@router.get("/action_runs/{action_run_id}/steps")
+def get_action_run_steps(action_run_id: str):
+    steps = get_steps(action_run_id)
+    return {"action_run_id": action_run_id, "steps": steps}
+
+
+@router.patch("/action_runs/{action_run_id}/steps")
+def patch_action_run_step(action_run_id: str, body: StepUpdateBody):
+    updated = update_step(
+        action_run_id=action_run_id,
+        step_index=body.step_index,
+        status=body.status,
+        timestamp=body.timestamp,
+        artifact_id=body.artifact_id,
+    )
+    return {"action_run_id": action_run_id, "steps": updated}
+
+
+class AdvanceBody(BaseModel):
+    step_index: int
+    approved_by: str = "Omni Admin"
+
+
+@router.post("/action_runs/{action_run_id}/advance")
+def advance_action_run(action_run_id: str, body: AdvanceBody):
+    """
+    Called when a human approves a PENDING step in the action breakdown.
+    Marks the step DONE, unlocks the next step, and runs any automated agents
+    for the subsequent step(s) according to the action layer spec.
+    """
+    result = advance_after_approval(
+        action_run_id=action_run_id,
+        step_index=body.step_index,
+        approved_by=body.approved_by,
+    )
+    return result
