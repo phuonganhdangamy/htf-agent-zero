@@ -20,11 +20,14 @@ def _ensure_steps(action_run_id: str):
 
 def run_step_4_send_email(action_run_id: str, approved_by: str) -> None:
     """
-    Step 4: DO NOT send a real email.
-    Instead, attach the existing email draft artifact to this step so the UI can show \"View Draft\".
+    Step 4: Mark draft email as 'sent' and attach artifact_id to the CommitAgent step.
+    (No real email is sent for the demo — the draft artifact serves as the record.)
     """
     res = supabase.table("draft_artifacts").select("artifact_id").eq("action_run_id", action_run_id).eq("type", "email").order("created_at", desc=True).limit(1).execute()
     artifact_id = res.data[0]["artifact_id"] if res.data else None
+    if artifact_id:
+        # Mark the draft as sent so UI shows it as delivered
+        supabase.table("draft_artifacts").update({"status": "sent"}).eq("artifact_id", artifact_id).execute()
     update_step(action_run_id, 3, "DONE", artifact_id=artifact_id)
 
 

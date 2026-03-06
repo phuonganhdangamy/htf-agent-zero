@@ -1,6 +1,7 @@
 import { Outlet } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
+import HealthCheckPanel from '../HealthCheckPanel';
 
 export default function MainLayout() {
     return (
@@ -12,6 +13,7 @@ export default function MainLayout() {
                     <Outlet />
                 </main>
             </div>
+            <HealthCheckPanel />
         </div>
     );
 }

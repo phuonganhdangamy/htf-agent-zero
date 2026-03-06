@@ -67,7 +67,14 @@ export default function ActivityLog() {
         ) : entries.length === 0 ? (
           <div className="p-8 text-center text-slate-500">No entries in audit_log table.</div>
         ) : (
-          <table className="w-full text-left text-sm whitespace-nowrap">
+          <table className="w-full text-left text-sm table-fixed">
+            <colgroup>
+              <col className="w-44" />
+              <col className="w-44" />
+              <col className="w-36" />
+              <col className="w-28" />
+              <col />
+            </colgroup>
             <thead className="bg-slate-50/50 text-slate-500 uppercase tracking-wider text-xs border-b border-slate-200">
               <tr>
                 <th className="px-6 py-4 font-medium">Timestamp</th>
@@ -80,25 +87,25 @@ export default function ActivityLog() {
             <tbody className="divide-y divide-slate-100">
               {entries.map((row) => (
                 <tr key={row.id} className="hover:bg-slate-50/50">
-                  <td className="px-6 py-4 text-slate-600">
+                  <td className="px-6 py-4 text-slate-600 text-xs whitespace-nowrap">
                     {row.created_at ? format(new Date(row.created_at), 'yyyy-MM-dd HH:mm:ss') : '—'}
                   </td>
                   <td className="px-6 py-4">
-                    <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded text-xs font-medium">
+                    <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded text-xs font-medium break-all">
                       {row.event_type || '—'}
                     </span>
                   </td>
                   <td className="px-6 py-4">
                     {row.case_id ? (
-                      <Link to={`/cases/${row.case_id}`} className="text-blue-600 hover:underline font-mono text-xs">
+                      <Link to={`/cases/${row.case_id}`} className="text-blue-600 hover:underline font-mono text-xs break-all">
                         {row.case_id}
                       </Link>
                     ) : (
-                      '—'
+                      <span className="text-slate-400 text-xs">—</span>
                     )}
                   </td>
-                  <td className="px-6 py-4 text-slate-600">{row.actor || '—'}</td>
-                  <td className="px-6 py-4 text-slate-600 max-w-xs truncate" title={JSON.stringify(row.payload)}>
+                  <td className="px-6 py-4 text-slate-600 text-xs">{row.actor || '—'}</td>
+                  <td className="px-6 py-4 text-slate-600 text-xs wrap-break-word" title={JSON.stringify(row.payload)}>
                     {oneLineSummary(row.payload)}
                   </td>
                 </tr>

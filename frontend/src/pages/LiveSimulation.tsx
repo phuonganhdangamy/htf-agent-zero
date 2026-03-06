@@ -398,12 +398,9 @@ export default function LiveSimulation() {
         if (!latestCase) return;
         setSavingCase(true);
         try {
-            const { id, ...rest } = latestCase as any;
-            const payload = { ...rest, case_id: `SAVED-${latestCase.case_id}-${Date.now()}` };
-            const { data } = await axios.post(`${API_BASE}/api/risk_cases`, payload);
-            if (data?.case_id) navigate('/cases');
-        } catch (e) {
-            console.error(e);
+            // The case is already persisted to risk_cases during Run Cycle.
+            // Just navigate to the Risk Cases tab.
+            navigate('/cases');
         } finally {
             setSavingCase(false);
         }
