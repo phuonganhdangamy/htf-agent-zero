@@ -63,6 +63,7 @@ export default function ActionsApproval() {
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [draftModal, setDraftModal] = useState<{ artifact: DraftArtifact; proposalId: string; actionRunId: string } | null>(null);
     const [draftEdit, setDraftEdit] = useState<{ to: string; subject: string; body: string } | null>(null);
+
     // #17 dedup: track which proposals are currently being approved/rejected
     const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
 
@@ -179,8 +180,14 @@ export default function ActionsApproval() {
             .eq('artifact_id', artifactId)
             .single();
         if (data) {
-            setDraftModal({ artifact: data as DraftArtifact, proposalId, actionRunId });
+            const artifact = data as DraftArtifact;
+            const sp = artifact.structured_payload || {};
+            setEditedBody((sp.body as string) || artifact.preview || '');
+            setDraftApproved(false);
+            setDraftModal({ artifact, proposalId, actionRunId });
         } else {
+            setEditedBody('[No preview available]');
+            setDraftApproved(false);
             setDraftModal({
                 artifact: { artifact_id: artifactId, type: 'email', preview: '[No preview available]' },
                 proposalId,
@@ -223,10 +230,39 @@ export default function ActionsApproval() {
     };
 
     // #7: approve from inside the draft modal (advances the pending ApprovalAgent step)
+    const handleDraftSave = async () => {
+        if (!draftModal) return;
+        const { artifact } = draftModal;
+        try {
+            const sp = artifact.structured_payload || {};
+            const updatedPayload = { ...sp, body: editedBody };
+            await supabase
+                .from('draft_artifacts')
+                .update({
+                    preview: editedBody,
+                    structured_payload: updatedPayload,
+                })
+                .eq('artifact_id', artifact.artifact_id);
+            // keep modal in sync
+            setDraftModal(prev =>
+                prev
+                    ? {
+                          ...prev,
+                          artifact: { ...prev.artifact, preview: editedBody, structured_payload: updatedPayload },
+                      }
+                    : prev
+            );
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
     const handleDraftApprove = async () => {
         if (!draftModal) return;
         const { actionRunId, proposalId } = draftModal;
         try {
+            // Persist any edits to the draft before advancing
+            await handleDraftSave();
             // Step 3 (ApprovalAgent for email) is index 2
             await axios.post(`${API_BASE}/api/agent/action_runs/${actionRunId}/advance`, {
                 step_index: 2,
@@ -238,7 +274,7 @@ export default function ActionsApproval() {
                 approved_by: 'Omni Admin',
                 decision: 'approve',
             });
-            setDraftModal(null);
+            setDraftApproved(true);
             fetchActions();
         } catch (err) {
             console.error(err);
@@ -325,8 +361,14 @@ export default function ActionsApproval() {
                             <span className="text-slate-800 font-semibold">{sp.subject || '—'}</span>
                         </div>
                     </div>
-                    <div className="bg-white border border-slate-200 rounded-lg p-4 text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
-                        {sp.body || artifact.preview || '[No body content]'}
+                    <div className="space-y-1">
+                        <label className="block text-xs font-semibold text-slate-500 mb-1">Body (editable)</label>
+                        <textarea
+                            className="w-full min-h-[350px] border border-slate-200 rounded-lg px-3 py-2 text-sm font-sans text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-vertical"
+                            value={editedBody}
+                            onChange={(e) => setEditedBody(e.target.value)}
+                            disabled={draftApproved}
+                        />
                     </div>
                 </div>
             );
@@ -561,8 +603,13 @@ export default function ActionsApproval() {
                                      draftModal.artifact.type === 'erp_diff' ? 'ERP Change Diff' :
                                      draftModal.artifact.type === 'slack_message' ? 'Slack Message' : 'Draft Artifact'}
                                 </h3>
-                                <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded font-semibold uppercase">
-                                    {draftModal.artifact.status || 'draft'}
+                                <span className={cn(
+                                    "text-xs px-2 py-0.5 rounded font-semibold uppercase",
+                                    draftApproved
+                                        ? "bg-emerald-100 text-emerald-700"
+                                        : "bg-amber-100 text-amber-700"
+                                )}>
+                                    {draftApproved ? 'approved' : (draftModal.artifact.status || 'draft')}
                                 </span>
                             </div>
                             <button onClick={() => setDraftModal(null)} className="p-1 hover:bg-slate-100 rounded">
@@ -656,6 +703,7 @@ export default function ActionsApproval() {
                             >
                                 <Check size={16} /> Approve & Proceed
                             </button>
+
                         </div>
                     </div>
                 </div>
