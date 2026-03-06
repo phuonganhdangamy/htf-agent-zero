@@ -106,9 +106,17 @@ def approve_action(request: ApproveRequest):
         
     proposal = update_res.data[0]
     
-    # Write audit log
+    # Fetch case_id from action_run so the audit entry is linked to the right case (#18)
+    action_run_id = proposal.get("action_run_id")
+    case_id = None
+    if action_run_id:
+        run_res = supabase.table("action_runs").select("case_id").eq("action_run_id", action_run_id).execute()
+        if run_res.data:
+            case_id = run_res.data[0].get("case_id")
+
     supabase.table("audit_log").insert({
-        "action_run_id": proposal.get("action_run_id"),
+        "action_run_id": action_run_id,
+        "case_id": case_id,
         "actor": request.approved_by,
         "event_type": f"proposal_{status}",
         "payload": {"proposal_id": request.proposal_id, "decision": request.decision}

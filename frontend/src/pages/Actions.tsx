@@ -1,7 +1,7 @@
 import { useState, useEffect, Fragment } from 'react';
 import { supabase } from '../lib/supabase';
 import type { ChangeProposal } from '../types';
-import { CheckCircle2, Clock, Check, X, ChevronRight, ChevronDown, Lock, FileText } from 'lucide-react';
+import { CheckCircle2, Clock, Check, X, ChevronRight, ChevronDown, Lock, FileText, Mail } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import axios from 'axios';
@@ -29,6 +29,22 @@ const DEFAULT_STEPS: ActionStep[] = [
     { step: 9, name: 'AuditAgent', status: 'LOCKED', description: 'write audit record' },
 ];
 
+interface DraftArtifact {
+    artifact_id: string;
+    type: 'email' | 'erp_diff' | 'slack_message' | 'ticket';
+    preview: string;
+    structured_payload?: {
+        to?: string;
+        subject?: string;
+        body?: string;
+        before?: Record<string, unknown>;
+        after?: Record<string, unknown>;
+        message?: string;
+        [key: string]: unknown;
+    };
+    status?: string;
+}
+
 interface JoinedProposal extends ChangeProposal {
     action_runs?: {
         case_id: string;
@@ -45,7 +61,9 @@ export default function ActionsApproval() {
     const [actions, setActions] = useState<JoinedProposal[]>([]);
     const [loading, setLoading] = useState(true);
     const [expandedId, setExpandedId] = useState<string | null>(null);
-    const [draftModal, setDraftModal] = useState<{ artifactId: string; preview: string } | null>(null);
+    const [draftModal, setDraftModal] = useState<{ artifact: DraftArtifact; proposalId: string; actionRunId: string } | null>(null);
+    // #17 dedup: track which proposals are currently being approved/rejected
+    const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
         fetchActions();
@@ -68,22 +86,46 @@ export default function ActionsApproval() {
         }
     };
 
-    const handleApprove = async (proposalId: string) => {
+    // #17 dedup helper
+    const withProcessing = async (proposalId: string, fn: () => Promise<void>) => {
+        if (processingIds.has(proposalId)) return;
+        setProcessingIds(prev => new Set(prev).add(proposalId));
         try {
-            await supabase.from('change_proposals').update({ status: 'approved', approved_by: 'Omni Admin' }).eq('proposal_id', proposalId);
-            fetchActions();
-        } catch (err) {
-            console.error(err);
+            await fn();
+        } finally {
+            setProcessingIds(prev => { const s = new Set(prev); s.delete(proposalId); return s; });
         }
     };
 
-    const handleReject = async (proposalId: string) => {
-        try {
-            await supabase.from('change_proposals').update({ status: 'rejected', approved_by: 'Omni Admin' }).eq('proposal_id', proposalId);
+    // #16: top-level approve — use backend API so audit_log gets written with case_id
+    const handleApprove = async (proposalId: string) => {
+        await withProcessing(proposalId, async () => {
+            await axios.post(`${API_BASE}/api/agent/approve`, {
+                proposal_id: proposalId,
+                approved_by: 'Omni Admin',
+                decision: 'approve',
+            });
             fetchActions();
-        } catch (err) {
-            console.error(err);
-        }
+        });
+    };
+
+    // #16: top-level reject — use backend API + lock the pending action run step
+    const handleReject = async (proposalId: string, actionRunId?: string) => {
+        await withProcessing(proposalId, async () => {
+            await axios.post(`${API_BASE}/api/agent/approve`, {
+                proposal_id: proposalId,
+                approved_by: 'Omni Admin',
+                decision: 'reject',
+            });
+            // Lock the pending ApprovalAgent step (index 2) so it cascades downstream
+            if (actionRunId) {
+                await axios.patch(`${API_BASE}/api/agent/action_runs/${actionRunId}/steps`, {
+                    step_index: 2,
+                    status: 'LOCKED',
+                });
+            }
+            fetchActions();
+        });
     };
 
     const getStepsForRun = (act: JoinedProposal): ActionStep[] => {
@@ -104,10 +146,7 @@ export default function ActionsApproval() {
     const resolveStepDisplayStatus = (steps: ActionStep[], index: number): 'DONE' | 'PENDING' | 'LOCKED' => {
         const step = steps[index];
         if (!step) return 'LOCKED';
-        if (step.status === 'DONE') return 'DONE';
-        if (step.status === 'PENDING') return 'PENDING';
-        const prevDone = index === 0 || steps[index - 1]?.status === 'DONE';
-        return prevDone ? 'LOCKED' : 'LOCKED';
+        return step.status;
     };
 
     const isStepGrayed = (steps: ActionStep[], index: number): boolean => {
@@ -117,15 +156,26 @@ export default function ActionsApproval() {
         return !prevDone;
     };
 
-    const openDraftModal = async (artifactId: string) => {
-        const { data } = await supabase.from('draft_artifacts').select('preview').eq('artifact_id', artifactId).single();
-        setDraftModal(data ? { artifactId, preview: data.preview ?? '' } : { artifactId, preview: '[No preview]' });
+    // #7: fetch full draft artifact including type and structured_payload
+    const openDraftModal = async (artifactId: string, proposalId: string, actionRunId: string) => {
+        const { data } = await supabase
+            .from('draft_artifacts')
+            .select('artifact_id, type, preview, structured_payload, status')
+            .eq('artifact_id', artifactId)
+            .single();
+        if (data) {
+            setDraftModal({ artifact: data as DraftArtifact, proposalId, actionRunId });
+        } else {
+            setDraftModal({
+                artifact: { artifact_id: artifactId, type: 'email', preview: '[No preview available]' },
+                proposalId,
+                actionRunId,
+            });
+        }
     };
 
     const handleStepApprove = async (actionRunId: string, stepIndex: number) => {
         try {
-            // Call orchestrator advance endpoint so we both mark the step DONE and
-            // run the next agent(s) according to the action layer spec.
             await axios.post(`${API_BASE}/api/agent/action_runs/${actionRunId}/advance`, {
                 step_index: stepIndex,
                 approved_by: 'Omni Admin',
@@ -148,6 +198,29 @@ export default function ActionsApproval() {
         }
     };
 
+    // #7: approve from inside the draft modal (advances the pending ApprovalAgent step)
+    const handleDraftApprove = async () => {
+        if (!draftModal) return;
+        const { actionRunId, proposalId } = draftModal;
+        try {
+            // Step 3 (ApprovalAgent for email) is index 2
+            await axios.post(`${API_BASE}/api/agent/action_runs/${actionRunId}/advance`, {
+                step_index: 2,
+                approved_by: 'Omni Admin',
+            });
+            // Also mark the overall proposal approved
+            await axios.post(`${API_BASE}/api/agent/approve`, {
+                proposal_id: proposalId,
+                approved_by: 'Omni Admin',
+                decision: 'approve',
+            });
+            setDraftModal(null);
+            fetchActions();
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
     const formatValue = (val: any): string => {
         if (val === null || val === undefined) return '[None]';
         if (val === '') return '[Empty]';
@@ -160,7 +233,6 @@ export default function ActionsApproval() {
 
         const lines: React.ReactNode[] = [];
 
-        // Handle explicit "actions" list if present
         if (Array.isArray(diff.actions)) {
             diff.actions.forEach((action: string, idx: number) => {
                 lines.push(
@@ -172,7 +244,6 @@ export default function ActionsApproval() {
             });
         }
 
-        // Handle key-value changes (Update from X to Y)
         Object.entries(diff).forEach(([key, value]) => {
             if (key === 'actions' || key === 'plan_id' || key === 'name') return;
 
@@ -213,6 +284,75 @@ export default function ActionsApproval() {
         return lines.length > 0 ? <div className="space-y-1">{lines}</div> : <span className="text-slate-400 italic">No details available</span>;
     };
 
+    // #7: render typed draft content
+    const renderDraftContent = (artifact: DraftArtifact) => {
+        const sp = artifact.structured_payload;
+
+        if (artifact.type === 'email' && sp) {
+            return (
+                <div className="space-y-3">
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-2 text-sm">
+                        <div className="flex gap-2">
+                            <span className="font-semibold text-slate-500 w-16 shrink-0">To:</span>
+                            <span className="text-slate-800 font-mono">{sp.to || '—'}</span>
+                        </div>
+                        <div className="flex gap-2">
+                            <span className="font-semibold text-slate-500 w-16 shrink-0">Subject:</span>
+                            <span className="text-slate-800 font-semibold">{sp.subject || '—'}</span>
+                        </div>
+                    </div>
+                    <div className="bg-white border border-slate-200 rounded-lg p-4 text-sm text-slate-700 whitespace-pre-wrap font-sans leading-relaxed">
+                        {sp.body || artifact.preview || '[No body content]'}
+                    </div>
+                </div>
+            );
+        }
+
+        if (artifact.type === 'erp_diff' && sp) {
+            const before = sp.before || {};
+            const after = sp.after || {};
+            const fields = Array.from(new Set([...Object.keys(before), ...Object.keys(after)]));
+            return (
+                <table className="w-full text-sm border-collapse">
+                    <thead>
+                        <tr className="bg-slate-50 text-slate-600 uppercase text-xs">
+                            <th className="px-3 py-2 text-left font-medium border border-slate-200">Field</th>
+                            <th className="px-3 py-2 text-left font-medium border border-slate-200 text-rose-600">Before</th>
+                            <th className="px-3 py-2 text-left font-medium border border-slate-200 text-emerald-600">After</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {fields.map(f => (
+                            <tr key={f} className="border border-slate-100">
+                                <td className="px-3 py-2 font-mono text-slate-600">{f}</td>
+                                <td className="px-3 py-2 text-rose-700 line-through">{formatValue(before[f])}</td>
+                                <td className="px-3 py-2 text-emerald-700 font-semibold">{formatValue(after[f])}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            );
+        }
+
+        if (artifact.type === 'slack_message' && sp?.message) {
+            return (
+                <div className="flex gap-3 items-start">
+                    <div className="w-9 h-9 rounded bg-purple-600 flex items-center justify-center text-white font-bold text-sm shrink-0">O</div>
+                    <div className="bg-white border border-slate-200 rounded-lg px-4 py-3 text-sm text-slate-700 max-w-lg">
+                        {sp.message}
+                    </div>
+                </div>
+            );
+        }
+
+        // Fallback: show raw preview
+        return (
+            <pre className="whitespace-pre-wrap text-sm text-slate-700 font-mono bg-slate-50 p-4 rounded-lg">
+                {artifact.preview || '[No preview content]'}
+            </pre>
+        );
+    };
+
     return (
         <div className="max-w-6xl mx-auto space-y-6">
             <div className="flex items-center justify-between">
@@ -248,6 +388,7 @@ export default function ActionsApproval() {
                                 const isExpanded = expandedId === act.proposal_id;
                                 const steps = getStepsForRun(act);
                                 const actionRunId = act.action_runs?.action_run_id;
+                                const isProcessing = processingIds.has(act.proposal_id);
 
                                 return (
                                     <Fragment key={act.id}>
@@ -297,10 +438,21 @@ export default function ActionsApproval() {
                                         <td className="px-6 py-4 text-right align-top" onClick={(e) => e.stopPropagation()}>
                                             {act.status === 'pending' && (
                                                 <div className="flex justify-end gap-2">
-                                                    <button onClick={(e) => { e.stopPropagation(); handleApprove(act.proposal_id); }} className="p-1.5 bg-emerald-100 text-emerald-600 hover:bg-emerald-200 rounded transition-colors" title="Approve">
+                                                    {/* #17 dedup: disabled while processing */}
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleApprove(act.proposal_id); }}
+                                                        disabled={isProcessing}
+                                                        className="p-1.5 bg-emerald-100 text-emerald-600 hover:bg-emerald-200 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                        title="Approve"
+                                                    >
                                                         <Check size={16} />
                                                     </button>
-                                                    <button onClick={(e) => { e.stopPropagation(); handleReject(act.proposal_id); }} className="p-1.5 bg-rose-100 text-rose-600 hover:bg-rose-200 rounded transition-colors" title="Reject">
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handleReject(act.proposal_id, actionRunId); }}
+                                                        disabled={isProcessing}
+                                                        className="p-1.5 bg-rose-100 text-rose-600 hover:bg-rose-200 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                        title="Reject"
+                                                    >
                                                         <X size={16} />
                                                     </button>
                                                 </div>
@@ -346,10 +498,14 @@ export default function ActionsApproval() {
                                                                         <button onClick={() => handleStepReject(actionRunId, idx)} className="px-2 py-0.5 bg-rose-100 text-rose-600 hover:bg-rose-200 rounded text-xs font-medium">Reject</button>
                                                                     </div>
                                                                 )}
+                                                                {/* #7: View Draft button appears when artifact_id is set */}
                                                                 {s.artifact_id && (displayStatus === 'DONE' || displayStatus === 'PENDING') && (
                                                                     <button
-                                                                        onClick={(e) => { e.stopPropagation(); openDraftModal(s.artifact_id!); }}
-                                                                        className="flex items-center gap-1 px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded text-xs"
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            openDraftModal(s.artifact_id!, act.proposal_id, actionRunId || '');
+                                                                        }}
+                                                                        className="flex items-center gap-1 px-2 py-0.5 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded text-xs border border-blue-200"
                                                                     >
                                                                         <FileText size={12} /> View Draft
                                                                     </button>
@@ -369,17 +525,44 @@ export default function ActionsApproval() {
                 )}
             </div>
 
+            {/* #7: Draft artifact modal with type-specific rendering */}
             {draftModal && (
                 <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setDraftModal(null)}>
-                    <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+                    <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
                         <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-                            <h3 className="font-bold text-slate-900">View Draft</h3>
+                            <div className="flex items-center gap-2">
+                                {draftModal.artifact.type === 'email' && <Mail size={18} className="text-blue-600" />}
+                                <h3 className="font-bold text-slate-900">
+                                    {draftModal.artifact.type === 'email' ? 'Email Draft' :
+                                     draftModal.artifact.type === 'erp_diff' ? 'ERP Change Diff' :
+                                     draftModal.artifact.type === 'slack_message' ? 'Slack Message' : 'Draft Artifact'}
+                                </h3>
+                                <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded font-semibold uppercase">
+                                    {draftModal.artifact.status || 'draft'}
+                                </span>
+                            </div>
                             <button onClick={() => setDraftModal(null)} className="p-1 hover:bg-slate-100 rounded">
                                 <X size={20} className="text-slate-500" />
                             </button>
                         </div>
-                        <div className="px-6 py-4 overflow-auto flex-1 whitespace-pre-wrap text-sm text-slate-700 font-mono bg-slate-50">
-                            {draftModal.preview || '[No preview content]'}
+
+                        <div className="px-6 py-4 overflow-auto flex-1">
+                            {renderDraftContent(draftModal.artifact)}
+                        </div>
+
+                        <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
+                            <button
+                                onClick={() => setDraftModal(null)}
+                                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                            >
+                                Close
+                            </button>
+                            <button
+                                onClick={handleDraftApprove}
+                                className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors flex items-center gap-2"
+                            >
+                                <Check size={16} /> Approve & Proceed
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -387,4 +570,3 @@ export default function ActionsApproval() {
         </div>
     );
 }
-

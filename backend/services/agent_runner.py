@@ -268,11 +268,59 @@ Live operational context (already filtered by focus suppliers/materials if provi
     # Action run + change_proposal for approval bar (values from recommended_plan)
     action_run_id = f"RUN-{str(uuid.uuid4())[:8].upper()}"
     proposal_id = f"PROP-{str(uuid.uuid4())[:8].upper()}"
+    # --- DraftingAgent: generate email draft artifact ---
+    artifact_id = f"ART-{str(uuid.uuid4())[:8].upper()}"
+    supplier_ids = (payload.get("exposure") or {}).get("suppliers") or []
+    to_email = f"procurement@{str(supplier_ids[0]).lower().replace('_', '-')}.com" if supplier_ids else "supplier@example.com"
+    headline_short = (payload.get("headline") or "")[:80]
+    subject = f"[URGENT] Supply Chain Risk Mitigation — {headline_short}"
+    actions_list = rec.get("actions") or [] if isinstance(rec, dict) else []
+    cost_str = f"${rec.get('expected_cost_usd', 0):,.0f}" if isinstance(rec, dict) and rec.get('expected_cost_usd') else "TBD"
+    actions_text = "\n".join(f"  • {a}" for a in actions_list) if actions_list else "  • See attached mitigation plan"
+    body = f"""Dear Supplier Partnership Team,
+
+We are writing to advise you of an identified supply chain disruption that requires immediate coordination.
+
+Risk Assessment Summary:
+  Headline: {payload.get('headline', '')}
+  Category: {payload.get('risk_category', '')}
+  Risk Score: {scores.get('overall', 'N/A')}/100
+  Urgency: {scores.get('urgency', 'N/A')}/100
+
+Recommended Mitigation Actions:
+{actions_text}
+
+Expected Cost: {cost_str}
+Expected Loss Prevented: ${rec.get('expected_loss_prevented_usd', 0):,.0f}
+
+We request your immediate confirmation and action on the above. Please respond within 24 hours.
+
+Best regards,
+Omni Supply Chain Intelligence
+Omni Manufacturing — Procurement Operations"""
+
+    draft_preview = f"TO: {to_email}\nSUBJECT: {subject}\n\n{body}"
+    supabase.table("draft_artifacts").insert({
+        "artifact_id": artifact_id,
+        "action_run_id": action_run_id,
+        "type": "email",
+        "preview": draft_preview,
+        "structured_payload": {
+            "to": to_email,
+            "subject": subject,
+            "body": body,
+        },
+        "status": "draft",
+    }).execute()
+
+    # Attach artifact_id to DraftingAgent step (index 1)
+    steps_with_artifact = [dict(s) for s in DEFAULT_ACTION_RUN_STEPS]
+    steps_with_artifact[1]["artifact_id"] = artifact_id
     supabase.table("action_runs").insert({
         "action_run_id": action_run_id,
         "case_id": case_id,
         "status": "drafted",
-        "steps": DEFAULT_ACTION_RUN_STEPS,
+        "steps": steps_with_artifact,
     }).execute()
     supabase.table("change_proposals").insert({
         "proposal_id": proposal_id,

@@ -1,7 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from backend.routers import agent, erp, webhooks, events, actions, simulate, chat
+from backend.routers import agent, erp, webhooks, events, actions, simulate, chat, monitoring
 from backend.services.supabase_client import supabase
 from dotenv import load_dotenv
 
@@ -32,6 +32,13 @@ def seed_memory_patterns():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_memory_patterns()
+    # Run initial monitoring check on startup
+    try:
+        from backend.services.monitoring_service import check_and_alert
+        result = check_and_alert()
+        print(f"[startup] monitoring check: {result}")
+    except Exception as e:
+        print(f"[startup] monitoring check failed: {e}")
     yield
 
 
@@ -52,6 +59,7 @@ app.include_router(events.router, prefix="/api", tags=["Events"])
 app.include_router(actions.router, prefix="/api", tags=["Actions"])
 app.include_router(simulate.router, prefix="/api/simulate", tags=["Simulate"])
 app.include_router(chat.router, prefix="/api", tags=["Chat"])
+app.include_router(monitoring.router, prefix="/api/monitoring", tags=["Monitoring"])
 
 @app.get("/health")
 def health_check():
