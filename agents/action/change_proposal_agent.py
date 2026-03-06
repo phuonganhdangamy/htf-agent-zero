@@ -15,10 +15,9 @@ def save_change_proposal(proposal_json: str) -> str:
 
 def build_change_proposal_agent() -> LlmAgent:
     return LlmAgent(
-        id="change_proposal_agent",
-        name="Change Proposal Agent",
+        name="change_proposal_agent",
         description="Translates the final execution plan into an exact ERP diff for systems like SAP/Oracle.",
-        instructions="""You are the Change Proposal Agent.
+        instruction="""You are the Change Proposal Agent.
 Your job is to:
 1. Receive the finalized execution plan from the Planning Layer.
 2. Determine exactly what ERP entities must change (e.g., a specific PurchaseOrder, Inventory, Supplier).

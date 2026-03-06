@@ -22,10 +22,9 @@ def save_plans(plans_json: str, risk_case_id: str) -> str:
 
 def build_execution_planner() -> LlmAgent:
     return LlmAgent(
-        id="execution_planner",
-        name="Execution Planner Agent",
+        name="execution_planner",
         description="Finalizes the ranked plans and formats them for approval handoff.",
-        instructions="""You are the Execution Planner.
+        instruction="""You are the Execution Planner.
 Your job is to:
 1. Receive the mathematically ranked plans from the Optimization Engine.
 2. Select the top plan and break it down into an explicit step-by-step Execution Plan.

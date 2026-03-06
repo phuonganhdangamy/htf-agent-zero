@@ -52,49 +52,48 @@ export default function EventsFeed() {
                     <table className="w-full text-left text-sm whitespace-nowrap">
                         <thead className="bg-slate-50/50 text-slate-500 uppercase tracking-wider text-xs border-b border-slate-200">
                             <tr>
-                                <th className="px-6 py-4 font-medium">Event</th>
-                                <th className="px-6 py-4 font-medium">Type</th>
-                                <th className="px-6 py-4 font-medium">Location</th>
-                                <th className="px-6 py-4 font-medium">Severity</th>
-                                <th className="px-6 py-4 font-medium">Ingested</th>
+                                <th className="px-6 py-4 font-medium">event_id</th>
+                                <th className="px-6 py-4 font-medium">event_type</th>
+                                <th className="px-6 py-4 font-medium">country</th>
+                                <th className="px-6 py-4 font-medium">subtype</th>
+                                <th className="px-6 py-4 font-medium">confidence_score</th>
+                                <th className="px-6 py-4 font-medium">start_date</th>
+                                <th className="px-6 py-4 font-medium">evidence</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {events.map((ev) => (
-                                <tr key={ev.id} className="hover:bg-slate-50/50 transition-colors">
-                                    <td className="px-6 py-4">
-                                        <div className="font-medium text-slate-900 truncate max-w-xs" title={ev.headline || ev.subtype || ev.event_id}>
-                                            {ev.headline || ev.subtype || ev.event_id}
-                                        </div>
-                                        <div className="text-xs text-slate-500 font-mono mt-0.5">{ev.event_id}</div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded text-xs font-medium">
-                                            {ev.event_type || 'Unknown'}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-1.5 text-slate-600">
-                                            <Globe size={14} className="opacity-70" />
-                                            {ev.country || 'Global'}
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2">
-                                            <ShieldAlert size={16} className={cn(
-                                                ev.severity_score && ev.severity_score > 0.7 ? "text-rose-500" :
-                                                    ev.severity_score && ev.severity_score > 0.4 ? "text-amber-500" : "text-blue-500"
-                                            )} />
-                                            <span className="font-medium">
-                                                {ev.severity_score ? `${Math.round(ev.severity_score * 100)}%` : 'N/A'}
+                            {events.map((ev: any) => {
+                                const evidenceLinks = Array.isArray(ev.evidence_links) ? ev.evidence_links : (ev.evidence_links ? [ev.evidence_links] : []);
+                                const oneLink = typeof evidenceLinks[0] === 'string' ? evidenceLinks[0] : (evidenceLinks[0]?.url || evidenceLinks[0]);
+                                return (
+                                    <tr key={ev.id} className="hover:bg-slate-50/50 transition-colors">
+                                        <td className="px-6 py-4 font-mono text-xs">{ev.event_id || '—'}</td>
+                                        <td className="px-6 py-4">
+                                            <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded text-xs font-medium">
+                                                {ev.event_type || '—'}
                                             </span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 text-slate-500">
-                                        {ev.created_at ? format(new Date(ev.created_at), 'MMM d, HH:mm') : 'Unknown'}
-                                    </td>
-                                </tr>
-                            ))}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="flex items-center gap-1.5 text-slate-600">
+                                                <Globe size={14} className="opacity-70" />
+                                                {ev.country || '—'}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-slate-600">{ev.subtype || '—'}</td>
+                                        <td className="px-6 py-4 font-mono text-xs">{ev.confidence_score != null ? Number(ev.confidence_score).toFixed(2) : '—'}</td>
+                                        <td className="px-6 py-4 text-slate-600">
+                                            {ev.start_date ? format(new Date(ev.start_date), 'yyyy-MM-dd') : '—'}
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            {oneLink ? (
+                                                <a href={oneLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs truncate max-w-[120px] inline-block">
+                                                    {oneLink}
+                                                </a>
+                                            ) : '—'}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 )}

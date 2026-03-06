@@ -7,6 +7,8 @@ import CaseDetail from './pages/CaseDetail';
 import ActionsApproval from './pages/Actions';
 import OmniAgentPanel from './components/OmniAgentPanel';
 import LiveSimulation from './pages/LiveSimulation';
+import Configuration from './pages/Configuration';
+import ActivityLog from './pages/ActivityLog';
 
 function App() {
   return (
@@ -19,6 +21,8 @@ function App() {
         <Route path="actions" element={<ActionsApproval />} />
         <Route path="agent" element={<OmniAgentPanel />} />
         <Route path="simulation" element={<LiveSimulation />} />
+        <Route path="config" element={<Configuration />} />
+        <Route path="logs" element={<ActivityLog />} />
       </Route>
     </Routes>
   );

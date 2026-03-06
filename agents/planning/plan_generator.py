@@ -14,10 +14,9 @@ def get_action_library() -> str:
 
 def build_plan_generator() -> LlmAgent:
     return LlmAgent(
-        id="plan_generator",
-        name="Plan Generator Agent",
+        name="plan_generator",
         description="Generates a list of candidate mitigation plans for a RiskCase based on available actions.",
-        instructions="""You are the Plan Generator.
+        instruction="""You are the Plan Generator.
 Your job is to:
 1. Review the RiskCase output provided in context.
 2. Use `get_action_library` to retrieve all feasible mitigation actions.

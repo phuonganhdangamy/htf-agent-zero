@@ -25,10 +25,9 @@ def verify_erp_state(entity_type: str, entity_id: str) -> str:
 
 def build_verification_agent() -> LlmAgent:
     return LlmAgent(
-        id="verification_agent",
-        name="Verification Agent",
+        name="verification_agent",
         description="Post-commit checks to ensure ERP reflects the intended state.",
-        instructions="""You are the Verification Agent.
+        instruction="""You are the Verification Agent.
 Your job is to:
 1. Retrieve the expected new state from the Change Proposal context.
 2. Call `verify_erp_state` to fetch the actual current state of the modified entity.
