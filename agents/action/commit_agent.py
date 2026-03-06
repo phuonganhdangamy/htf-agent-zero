@@ -28,10 +28,9 @@ def execute_erp_commit(proposal_id: str, entity_type: str, entity_id: str, chang
 
 def build_commit_agent() -> LlmAgent:
     return LlmAgent(
-        id="commit_agent",
-        name="Commit Agent",
+        name="commit_agent",
         description="Executes ERP changes. Strictly requires human approval token.",
-        instructions="""You are the Commit Agent.
+        instruction="""You are the Commit Agent.
 Your job is to:
 1. Ensure you have an approval signal from the Approval Agent (including `approved_by`).
 2. If approved, extract the `diff` (changes) from the Change Proposal.

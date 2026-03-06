@@ -15,10 +15,9 @@ def build_action_coordinator() -> SequentialAgent:
     audit_agent = build_audit_agent()
     
     pipeline = SequentialAgent(
-        id="action_coordinator",
-        name="Action Coordinator",
+        name="action_coordinator",
         description="Coordinates the drafting, approval, commit, verification, and auditing of supply chain actions.",
-        agents=[
+        sub_agents=[
             change_proposal_agent,
             drafting_agent,
             approval_agent,

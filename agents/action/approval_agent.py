@@ -34,10 +34,9 @@ def poll_for_approval(proposal_id: str, timeout_minutes: int = 5) -> str:
 
 def build_approval_agent() -> LlmAgent:
     return LlmAgent(
-        id="approval_agent",
-        name="Approval Agent",
+        name="approval_agent",
         description="Waits for a Human-In-The-Loop (HITL) to approve the proposed change.",
-        instructions="""You are the Approval Gate.
+        instruction="""You are the Approval Gate.
 Your job is to:
 1. Receive the proposal_id from previous steps.
 2. Call `poll_for_approval` to wait for human authorization.

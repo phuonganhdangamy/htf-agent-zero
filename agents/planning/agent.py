@@ -14,10 +14,9 @@ def build_planning_coordinator() -> SequentialAgent:
     execution_planner = build_execution_planner()
     
     pipeline = SequentialAgent(
-        id="planning_coordinator",
-        name="Planning Coordinator",
+        name="planning_coordinator",
         description="Coordinates risk mitigation planning.",
-        agents=[plan_generator, scenario_simulator, execution_planner]
+        sub_agents=[plan_generator, scenario_simulator, execution_planner]
     )
     
     return pipeline

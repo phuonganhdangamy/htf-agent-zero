@@ -15,10 +15,9 @@ def read_risk_policy() -> str:
 
 def build_scoring_agent() -> LlmAgent:
     return LlmAgent(
-        id="scoring_agent",
-        name="Scoring Agent",
+        name="scoring_agent",
         description="Calculates the final Risk Score (P × E × I) using the risk policy YAML.",
-        instructions="""You are the Risk Scoring Agent.
+        instruction="""You are the Risk Scoring Agent.
 Your job is to:
 1. Use `read_risk_policy` to load the risk model and thresholds.
 2. Given the ExposureReports and Hypotheses in context, calculate the numeric risk_score from 0.0 to 1.0 (Probability * Exposure * Impact) using the exact weights in the policy.

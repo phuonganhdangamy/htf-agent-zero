@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Bot, Send, Sparkles, AlertCircle } from 'lucide-react';
+import { Bot, Send, Sparkles } from 'lucide-react';
 import axios from 'axios';
 
 export default function OmniAgentPanel() {
@@ -8,6 +8,8 @@ export default function OmniAgentPanel() {
     ]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
+
+    const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
     const handleSend = async () => {
         if (!input.trim()) return;
@@ -18,20 +20,18 @@ export default function OmniAgentPanel() {
         setLoading(true);
 
         try {
-            const response = await axios.post('http://localhost:8000/api/agent/run', {
-                company_id: 'C-001',
-                trigger: userMsg,
-                context: {}
+            const response = await axios.post(`${apiBase}/api/chat`, {
+                message: userMsg,
+                org_id: 'ORG_DEMO'
             });
-
             setMessages(prev => [...prev, {
                 role: 'agent',
-                content: `I have initiated the Omni pipeline analysis for that trigger. Pipeline Status: ${response.data.status || 'running'} \n\nPlease check the Risk Cases and Actions Dashboard for generated mitigation proposals.`
+                content: response.data?.response ?? 'No response.'
             }]);
         } catch (err: any) {
             setMessages(prev => [...prev, {
                 role: 'agent',
-                content: `Error invoking agent pipeline: ${err.message}`
+                content: `Error: ${err.response?.data?.detail ?? err.message}`
             }]);
         } finally {
             setLoading(false);
@@ -46,7 +46,7 @@ export default function OmniAgentPanel() {
                 </div>
                 <div>
                     <h1 className="text-2xl font-bold text-slate-900 leading-tight">Omni Agent Interface</h1>
-                    <p className="text-sm text-slate-500">Autonomous reasoning and action execution layer</p>
+                    <p className="text-sm text-slate-500">Supply chain assistant — answers from your live data</p>
                 </div>
             </div>
 
@@ -88,7 +88,7 @@ export default function OmniAgentPanel() {
                                     <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
                                     <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
                                 </div>
-                                Running Omni reasoning pipeline...
+                                Looking up your data...
                             </div>
                         </div>
                     )}
@@ -100,7 +100,7 @@ export default function OmniAgentPanel() {
                         <input
                             type="text"
                             className="flex-1 bg-transparent border-none focus:ring-0 px-4 py-2 text-slate-700 placeholder-slate-400 outline-none"
-                            placeholder="E.g., Evaluate supply chain risk for upcoming Kaohsiung port strike..."
+                            placeholder="E.g., What are our current risks? Which suppliers are single-source?"
                             value={input}
                             onChange={(e) => setInput(e.target.value)}
                             onKeyDown={(e) => e.key === 'Enter' && handleSend()}
@@ -113,10 +113,6 @@ export default function OmniAgentPanel() {
                         >
                             <Send size={18} />
                         </button>
-                    </div>
-                    <div className="mt-3 flex items-center gap-2 text-xs text-slate-500 px-2">
-                        <AlertCircle size={14} className="text-amber-500" />
-                        Agent actions are gated by human-in-the-loop approvals. No direct DB commits occur without authorization.
                     </div>
                 </div>
             </div>

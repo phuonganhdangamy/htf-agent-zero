@@ -23,10 +23,9 @@ def write_audit_log(case_id: str, action_run_id: str, actor: str, event_type: st
 
 def build_audit_agent() -> LlmAgent:
     return LlmAgent(
-        id="audit_agent",
-        name="Audit Agent",
+        name="audit_agent",
         description="Records all immutable state changes in the supply chain environment.",
-        instructions="""You are the Audit Agent.
+        instruction="""You are the Audit Agent.
 Your job is to:
 1. Receive the outcome of the Verification Agent.
 2. Call `write_audit_log` to permanently record the result of the action (e.g., event_type='commit_executed', payload={details}).

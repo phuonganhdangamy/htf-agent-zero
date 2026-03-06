@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
     Activity,
     Shield,
     Brain,
     Zap,
-    RefreshCcw,
     Database,
     ChevronRight,
     Terminal,
@@ -12,131 +12,195 @@ import {
     Globe
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import {
-    COMPANY_PROFILE,
-    SUPPLY_CHAIN_SNAPSHOT,
-    runPerceptionAgent,
-    runReasoningAgent,
-    runPlanningAgent,
-    runActionAgent,
-    runReflectionAgent
-} from '../services/geminiService';
+import { supabase } from '../lib/supabase';
+import axios from 'axios';
 
-interface LogEntry {
-    agent: string;
-    data: any;
-    reasoning: string;
-    timestamp: string;
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const DEFAULT_COMPANY_ID = 'ORG_DEMO';
+const DEFAULT_SCENARIO = `Large order incoming: 50,000 units PROD_001 for Q3 delivery. Single-source dependency on SUPP_044 (Taiwan). Current inventory at 4.2 days cover. Assess risk and recommend procurement strategy.`;
+
+interface ExecutionStep { agent?: string; action?: string; step?: number }
+interface RecommendedPlan {
+  plan_id?: string;
+  name?: string;
+  actions?: string[];
+  expected_cost_usd?: number;
+  expected_loss_prevented_usd?: number;
+  expected_delay_days?: number;
+  service_level?: number;
 }
-
-interface MemoryEntry {
-    pattern: string;
-    recommended_actions: string[];
-    confidence: number;
+interface RiskCaseRow {
+    case_id: string;
+    headline: string;
+    status: string;
+    scores?: { likelihood?: number; impact?: number; urgency?: number; overall_risk?: number; overall?: number; probability?: number };
+    hypotheses?: Array<{ title?: string; description?: string }> | { chain?: string[]; likelihood?: number; unknowns?: string[] };
+    recommended_plan?: string | RecommendedPlan;
+    alternative_plans?: unknown[];
+    execution_steps?: ExecutionStep[] | string[];
+}
+interface ChangeProposalRow {
+    proposal_id: string;
+    action_run_id: string;
+    system: string;
+    entity_type: string;
+    entity_id: string;
+    diff: unknown;
+    status: string;
 }
 
 export default function LiveSimulation() {
-    const [logs, setLogs] = useState<LogEntry[]>([]);
+    const navigate = useNavigate();
+    const [scenarioText, setScenarioText] = useState(DEFAULT_SCENARIO);
+    const [severity, setSeverity] = useState(70);
+    const [urgency, setUrgency] = useState(75);
     const [isSimulating, setIsSimulating] = useState(false);
-    const [currentStep, setCurrentStep] = useState<number | null>(null);
-    const [memory, setMemory] = useState<MemoryEntry[]>([
-        {
-            pattern: "Taiwan Strait geopolitical tension",
-            recommended_actions: ["ACTIVATE_BACKUP_SUPPLIER", "INCREASE_SAFETY_STOCK"],
-            confidence: 0.7
-        }
-    ]);
+    const [executionLog, setExecutionLog] = useState<string[]>([]);
+    const [latestCase, setLatestCase] = useState<RiskCaseRow | null>(null);
+    const [pendingProposal, setPendingProposal] = useState<ChangeProposalRow | null>(null);
+    const [savingCase, setSavingCase] = useState(false);
 
+    const [companyProfile, setCompanyProfile] = useState<{ company_name?: string; risk_appetite?: string; cost_cap_usd?: number }>({});
+    const [suppliers, setSuppliers] = useState<any[]>([]);
+    const [memoryPatterns, setMemoryPatterns] = useState<any[]>([]);
+    const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+    const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const logEndRef = useRef<HTMLDivElement>(null);
+    const POLL_INTERVAL_MS = 2000;
+    const RUN_TIMEOUT_MS = 90000;
 
     useEffect(() => {
         logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [logs]);
+    }, [executionLog]);
 
-    const addLog = (agent: string, data: any, reasoning: string) => {
-        setLogs(prev => [...prev, {
-            agent,
-            data,
-            reasoning,
-            timestamp: new Date().toLocaleTimeString()
-        }]);
-    };
-
-    const startSimulation = async () => {
-        setIsSimulating(true);
-        setLogs([]);
-
-        try {
-            // Step 1: Perception
-            setCurrentStep(1);
-            console.log("Starting Perception Agent...");
-            const perception = await runPerceptionAgent();
-            if (!perception || !perception.event_id) throw new Error("Perception Agent failed to generate valid event.");
-            addLog("Perception Agent", perception, perception.reasoning);
-            await new Promise(r => setTimeout(r, 1500));
-
-            // Step 2: Reasoning
-            setCurrentStep(2);
-            console.log("Starting Reasoning Agent...");
-            const reasoning = await runReasoningAgent(perception);
-            if (!reasoning || !reasoning.case_id) throw new Error("Reasoning Agent failed to generate valid case.");
-            addLog("Risk Reasoning Agent", reasoning, reasoning.reasoning);
-            await new Promise(r => setTimeout(r, 1500));
-
-            // Step 3: Planning
-            setCurrentStep(3);
-            console.log("Starting Planning Agent...");
-            const planning = await runPlanningAgent(reasoning);
-            if (!planning || !planning.plans) throw new Error("Planning Agent failed to generate valid plans.");
-            addLog("Planning Agent", planning, planning.reasoning);
-            await new Promise(r => setTimeout(r, 1500));
-
-            // Step 4: Action
-            setCurrentStep(4);
-            console.log("Starting Action Agent...");
-            const action = await runActionAgent(planning);
-            if (!action || !action.action_id) throw new Error("Action Agent failed to generate valid action.");
-            addLog("Action Agent", action, action.reasoning);
-            await new Promise(r => setTimeout(r, 1500));
-
-            // Step 5: Reflection
-            setCurrentStep(5);
-            console.log("Starting Reflection Agent...");
-            const reflection = await runReflectionAgent(action, reasoning);
-            if (!reflection || !reflection.outcome) throw new Error("Reflection Agent failed to generate valid outcome.");
-            addLog("Reflection Agent", reflection, reflection.reasoning);
-            await new Promise(r => setTimeout(r, 1500));
-
-            // Step 6: Memory Update
-            setCurrentStep(6);
-            console.log("Updating Memory...");
-            if (reflection.outcome === "success" || reflection.prediction_accuracy > 0.8) {
-                const newMemory: MemoryEntry = {
-                    pattern: perception.event_type + " in " + perception.location,
-                    recommended_actions: [action.action_type],
-                    confidence: Math.min(1, 0.5 + reflection.prediction_accuracy / 2)
-                };
-                setMemory(prev => [newMemory, ...prev].slice(0, 5));
-                addLog("Memory Module", newMemory, "Updating patterns based on successful mitigation.");
+    useEffect(() => {
+        if (!supabase) return;
+        (async () => {
+            try {
+                const [prefsRes, suppRes, patRes] = await Promise.all([
+                    supabase.from('memory_preferences').select('*').eq('org_id', DEFAULT_COMPANY_ID).maybeSingle(),
+                    supabase.from('suppliers').select('*').order('supplier_id'),
+                    supabase.from('memory_patterns').select('*').limit(20)
+                ]);
+                const obj = prefsRes.data?.objectives || {};
+                setCompanyProfile({
+                    company_name: 'Omni Manufacturing',
+                    risk_appetite: obj.risk_appetite || 'medium',
+                    cost_cap_usd: obj.cost_cap_usd ?? obj.cost_cap ?? 50000
+                });
+                setSuppliers(suppRes.data || []);
+                setMemoryPatterns(patRes.data || []);
+            } catch (_) {
+                setSuppliers([]);
+                setMemoryPatterns([]);
             }
+        })();
+    }, []);
 
-        } catch (error: any) {
-            console.error("Simulation failed:", error);
-            addLog("System Error", {
-                error: error.message || "Unknown error",
-                details: "The simulation encountered a problem communicating with the AI agents."
-            }, "The simulation was interrupted. Please check your API key and network connection.");
-        } finally {
-            setIsSimulating(false);
-            setCurrentStep(null);
+    const stopSimulating = () => {
+        setIsSimulating(false);
+        if (pollRef.current) {
+            clearInterval(pollRef.current);
+            pollRef.current = null;
+        }
+        if (timeoutRef.current) {
+            clearTimeout(timeoutRef.current);
+            timeoutRef.current = null;
         }
     };
 
-    const apiKeyExists = !!import.meta.env.VITE_GEMINI_API_KEY;
+    const runCycle = async () => {
+        setIsSimulating(true);
+        setExecutionLog([]);
+        setLatestCase(null);
+        setPendingProposal(null);
+        setExecutionLog(prev => [...prev, '[System] Starting agent pipeline...']);
+        try {
+            await axios.post(`${API_BASE}/api/agent/run`, {
+                company_id: DEFAULT_COMPANY_ID,
+                trigger: scenarioText.slice(0, 100),
+                scenario_text: scenarioText,
+                severity,
+                urgency
+            });
+            if (pollRef.current) clearInterval(pollRef.current);
+            pollRef.current = setInterval(pollCases, POLL_INTERVAL_MS);
+            pollCases();
+            timeoutRef.current = setTimeout(() => {
+                if (pollRef.current) {
+                    setExecutionLog(prev => [...prev, '[System] Run timed out (90s). Check backend logs.']);
+                    stopSimulating();
+                }
+            }, RUN_TIMEOUT_MS);
+        } catch (err: any) {
+            setExecutionLog(prev => [...prev, `[System] Error: ${err.response?.data?.detail ?? err.message ?? 'Failed to start run'}`]);
+            stopSimulating();
+        }
+    };
+
+    const pollCases = async () => {
+        try {
+            const { data } = await axios.get(`${API_BASE}/api/agent/cases`, {
+                params: { status: 'open', limit: 1, order: 'created_at.desc' }
+            });
+            const cases = Array.isArray(data) ? data : [];
+            const c = cases[0] as RiskCaseRow | undefined;
+            if (c) {
+                setLatestCase(c);
+                const steps = c.execution_steps || [];
+                const stepLines = steps.map((s: ExecutionStep | string) =>
+                    typeof s === 'string' ? s : `[${(s as ExecutionStep).agent || 'Step'}] ${(s as ExecutionStep).action || ''}`
+                );
+                setExecutionLog(prev => [...prev.filter(l => l.startsWith('[System]')), ...stepLines]);
+                stopSimulating();
+                if (supabase) {
+                    const runsRes = await supabase.from('action_runs').select('action_run_id').eq('case_id', c.case_id);
+                    const runIds = (runsRes.data || []).map((r: any) => r.action_run_id);
+                    if (runIds.length) {
+                        const propRes = await supabase.from('change_proposals').select('*').in('action_run_id', runIds).eq('status', 'pending').limit(1);
+                        setPendingProposal(propRes.data?.[0] || null);
+                    }
+                }
+            }
+        } catch (_) {}
+    };
+
+    const handleApprove = async (decision: 'approve' | 'reject') => {
+        if (!pendingProposal) return;
+        try {
+            await axios.post(`${API_BASE}/api/agent/approve`, {
+                proposal_id: pendingProposal.proposal_id,
+                approved_by: 'Omni Admin',
+                decision
+            });
+            setPendingProposal(null);
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const saveAsRiskCase = async () => {
+        if (!latestCase) return;
+        setSavingCase(true);
+        try {
+            const { id, ...rest } = latestCase as any;
+            const payload = { ...rest, case_id: `SAVED-${latestCase.case_id}-${Date.now()}` };
+            const { data } = await axios.post(`${API_BASE}/api/risk_cases`, payload);
+            if (data?.case_id) navigate('/cases');
+        } catch (e) {
+            console.error(e);
+        } finally {
+            setSavingCase(false);
+        }
+    };
+
+    const scores = latestCase?.scores || {};
+    const likelihood = scores.likelihood ?? scores.probability ?? 0;
+    const impact = scores.impact ?? 0;
+    const urgencyVal = scores.urgency ?? 0;
 
     return (
         <div className="bg-slate-50 text-slate-900 font-sans h-full overflow-y-auto">
-            {/* Header */}
             <header className="border-b border-slate-200 p-6 flex justify-between items-center bg-white sticky top-0 z-50">
                 <div>
                     <h1 className="text-2xl font-bold tracking-tighter flex items-center gap-2 text-slate-900">
@@ -145,187 +209,214 @@ export default function LiveSimulation() {
                     <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mt-1">Autonomous Multi-Agent System</p>
                 </div>
                 <div className="flex items-center gap-6">
-                    <div className="text-right">
-                        <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">API Status</p>
-                        <p className="text-xs font-mono flex items-center gap-2 font-semibold">
-                            <span className={`w-2 h-2 rounded-full ${apiKeyExists ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
-                            {apiKeyExists ? 'KEY_DETECTED' : 'KEY_MISSING'}
-                        </p>
-                    </div>
-                    <div className="text-right">
-                        <p className="text-[10px] uppercase tracking-widest text-slate-500 font-bold">Status</p>
-                        <p className="text-xs font-mono flex items-center gap-2 font-semibold">
-                            <span className={`w-2 h-2 rounded-full ${isSimulating ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></span>
-                            {isSimulating ? 'PROCESSING_CYCLE' : 'SYSTEM_IDLE'}
-                        </p>
-                    </div>
-                    <button
-                        onClick={startSimulation}
-                        disabled={isSimulating}
-                        className={`px-6 py-2 border rounded-md font-mono text-xs uppercase tracking-widest font-bold transition-all
-              ${isSimulating
-                                ? 'opacity-50 cursor-not-allowed border-slate-200 bg-slate-100 text-slate-400'
-                                : 'border-blue-600 bg-blue-600 text-white hover:bg-blue-700 active:scale-95 shadow-sm'}`}
-                    >
-                        {isSimulating ? 'Simulating...' : 'Run Cycle'}
-                    </button>
+                    <p className="text-xs font-mono font-semibold flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${isSimulating ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></span>
+                        {isSimulating ? 'PROCESSING_CYCLE' : 'SYSTEM_IDLE'}
+                    </p>
                 </div>
             </header>
 
             <main className="grid grid-cols-1 lg:grid-cols-12 gap-0 min-h-[calc(100vh-88px)]">
-                {/* Left Sidebar: Business State */}
+                {/* Left: Company + Suppliers + Memory Patterns */}
                 <aside className="lg:col-span-3 border-r border-slate-200 p-6 bg-white">
                     <section className="mb-8">
                         <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">Company Profile</h2>
                         <div className="space-y-3">
                             <div className="flex justify-between items-center text-sm">
                                 <span className="text-slate-500">Entity</span>
-                                <span className="font-mono font-semibold">{COMPANY_PROFILE.company_name}</span>
+                                <span className="font-mono font-semibold">{companyProfile.company_name || '—'}</span>
                             </div>
                             <div className="flex justify-between items-center text-sm">
                                 <span className="text-slate-500">Appetite</span>
-                                <span className="font-mono font-semibold uppercase">{COMPANY_PROFILE.risk_appetite}</span>
+                                <span className="font-mono font-semibold uppercase">{companyProfile.risk_appetite || '—'}</span>
                             </div>
                             <div className="flex justify-between items-center text-sm">
                                 <span className="text-slate-500">Cost Cap</span>
-                                <span className="font-mono font-semibold">${COMPANY_PROFILE.cost_cap_usd.toLocaleString()}</span>
+                                <span className="font-mono font-semibold">${(companyProfile.cost_cap_usd ?? 0).toLocaleString()}</span>
                             </div>
                         </div>
                     </section>
-
                     <section className="mb-8">
                         <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">Active Suppliers</h2>
                         <div className="space-y-4">
-                            {SUPPLY_CHAIN_SNAPSHOT.suppliers.map(s => (
+                            {suppliers.length === 0 && <p className="text-slate-500 text-sm">No suppliers in suppliers table.</p>}
+                            {suppliers.map((s: any) => (
                                 <div key={s.id} className="p-3 border border-slate-200 bg-slate-50 rounded-lg shadow-sm">
                                     <div className="flex justify-between items-start mb-2">
-                                        <span className="font-mono text-xs font-bold text-slate-800">{s.id}</span>
+                                        <span className="font-mono text-xs font-bold text-slate-800">{s.supplier_id}</span>
                                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.single_source ? 'bg-amber-100 text-amber-800' : 'bg-slate-200 text-slate-700'}`}>
                                             {s.single_source ? 'SINGLE_SOURCE' : 'BACKUP'}
                                         </span>
                                     </div>
-                                    <p className="text-sm font-medium text-slate-600 flex items-center gap-1.5"><Globe size={14} /> {s.location}</p>
+                                    <p className="text-sm font-medium text-slate-600 flex items-center gap-1.5"><Globe size={14} /> {s.country}</p>
                                     <div className="mt-3 flex justify-between items-center pt-2 border-t border-slate-200/50">
-                                        <span className="text-xs text-slate-500 font-semibold">Criticality Focus</span>
-                                        <span className="font-mono text-sm font-bold text-rose-600">{s.criticality_score}</span>
+                                        <span className="text-xs text-slate-500 font-semibold">Criticality</span>
+                                        <span className="font-mono text-sm font-bold text-rose-600">{s.criticality_score ?? '—'}</span>
                                     </div>
                                 </div>
                             ))}
                         </div>
                     </section>
-
                     <section>
                         <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">Memory Patterns</h2>
                         <div className="space-y-3">
-                            {memory.map((m, i) => (
-                                <div key={i} className="text-xs p-3 border border-slate-200 bg-blue-50/50 rounded-lg shadow-sm text-slate-700">
+                            {memoryPatterns.length === 0 && <p className="text-slate-500 text-sm">No rows in memory_patterns table.</p>}
+                            {memoryPatterns.map((m: any, i: number) => (
+                                <div key={m.id || i} className="text-xs p-3 border border-slate-200 bg-blue-50/50 rounded-lg shadow-sm text-slate-700">
                                     <p className="text-[10px] font-bold text-blue-600 mb-1">PATTERN_{i + 1}</p>
-                                    <p className="font-semibold leading-tight">{m.pattern}</p>
-                                    <div className="mt-3 flex items-center gap-3">
-                                        <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                                            <div className="h-full bg-blue-500 rounded-full" style={{ width: `${m.confidence * 100}%` }}></div>
-                                        </div>
-                                        <span className="font-mono font-bold text-slate-600">{Math.round(m.confidence * 100)}%</span>
-                                    </div>
+                                    <p className="font-semibold leading-tight">{m.pattern_id || JSON.stringify(m.trigger_conditions || '')}</p>
                                 </div>
                             ))}
                         </div>
                     </section>
                 </aside>
 
-                {/* Center: Agent Flow */}
+                {/* Center: Scenario + Run + Log + RiskCase + Approval */}
                 <section className="lg:col-span-6 border-r border-slate-200 flex flex-col bg-slate-50">
-                    <div className="p-4 border-b border-slate-200 bg-white shadow-sm flex items-center justify-between z-10 sticky top-0">
-                        <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <div className="p-4 border-b border-slate-200 bg-white shadow-sm">
+                        <h2 className="text-sm font-bold text-slate-800 flex items-center gap-2 mb-4">
                             <Activity size={18} className="text-blue-600" /> Agent Execution Flow
                         </h2>
-                        <div className="flex gap-2">
-                            {[1, 2, 3, 4, 5, 6].map(s => (
-                                <div key={s} className={`w-2 h-2 rounded-full transition-colors ${currentStep === s ? 'bg-blue-600 animate-pulse' : 'bg-slate-300'}`}></div>
-                            ))}
+                        <div className="space-y-3">
+                            <label className="block text-xs font-semibold text-slate-500 uppercase">Describe your operational scenario</label>
+                            <textarea
+                                value={scenarioText}
+                                onChange={(e) => setScenarioText(e.target.value)}
+                                className="w-full border border-slate-200 rounded-lg p-3 text-sm min-h-[80px]"
+                                placeholder="e.g. We are planning a large contract with Toyota for 50,000 units of PROD_001 in Q3. Assess supply chain readiness and risks."
+                            />
+                            <div className="flex gap-6 items-center">
+                                <div className="flex-1">
+                                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Severity (0–100)</label>
+                                    <input type="range" min="0" max="100" value={severity} onChange={(e) => setSeverity(Number(e.target.value))} className="w-full" />
+                                    <span className="font-mono text-sm font-bold">{severity}</span>
+                                </div>
+                                <div className="flex-1">
+                                    <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Urgency (0–100)</label>
+                                    <input type="range" min="0" max="100" value={urgency} onChange={(e) => setUrgency(Number(e.target.value))} className="w-full" />
+                                    <span className="font-mono text-sm font-bold">{urgency}</span>
+                                </div>
+                            </div>
+                            <button
+                                onClick={runCycle}
+                                disabled={isSimulating}
+                                className="px-6 py-2 border rounded-md font-mono text-xs uppercase tracking-widest font-bold transition-all border-blue-600 bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                            >
+                                {isSimulating ? 'Running...' : 'Run Cycle'}
+                            </button>
                         </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-6 space-y-6">
-                        <AnimatePresence mode="popLayout">
-                            {logs.length === 0 && !isSimulating && (
-                                <motion.div
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    className="h-full flex flex-col items-center justify-center text-slate-400 text-center py-20"
-                                >
-                                    <Terminal className="w-16 h-16 mb-4 text-slate-300" />
-                                    <p className="font-mono text-sm font-semibold">AWAITING_COMMAND<br /><span className="text-xs opacity-70">INITIATE_SIMULATION_CYCLE</span></p>
-                                </motion.div>
-                            )}
+                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                        {executionLog.length > 0 && (
+                            <div className="bg-slate-900 text-green-400 font-mono text-xs p-4 rounded-lg space-y-1">
+                                {executionLog.map((line, i) => (
+                                    <div key={i}>{line}</div>
+                                ))}
+                                <div ref={logEndRef} />
+                            </div>
+                        )}
 
-                            {logs.map((log, i) => (
-                                <motion.div
-                                    key={i}
-                                    initial={{ opacity: 0, y: 20 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    className="relative overflow-hidden bg-white border border-slate-200 rounded-xl shadow-sm"
-                                >
-                                    <div className="absolute top-0 left-0 w-1.5 h-full bg-blue-500"></div>
+                        {!latestCase && executionLog.length === 0 && !isSimulating && (
+                            <div className="h-full flex flex-col items-center justify-center text-slate-400 text-center py-20">
+                                <Terminal className="w-16 h-16 mb-4 text-slate-300" />
+                                <p className="font-mono text-sm font-semibold">AWAITING_COMMAND<br /><span className="text-xs opacity-70">INITIATE_SIMULATION_CYCLE</span></p>
+                            </div>
+                        )}
 
-                                    <div className="p-5 border-b border-slate-100 bg-slate-50">
-                                        <div className="flex justify-between items-center mb-2">
-                                            <div className="flex items-center gap-2 text-blue-700">
-                                                {getAgentIcon(log.agent)}
-                                                <span className="font-mono text-xs font-bold uppercase tracking-wider">{log.agent}</span>
+                        {latestCase && (
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
+                                <h3 className="font-bold text-slate-900 border-b pb-2">{latestCase.headline}</h3>
+                                <div className="flex gap-4 justify-center flex-wrap">
+                                    <Gauge label="Likelihood" value={likelihood} />
+                                    <Gauge label="Impact" value={impact} />
+                                    <Gauge label="Urgency" value={urgencyVal} />
+                                </div>
+                                {(() => {
+                                    const hyp = latestCase.hypotheses;
+                                    const chain = hyp && typeof hyp === 'object' && !Array.isArray(hyp) && (hyp as { chain?: string[] }).chain;
+                                    const list = Array.isArray(hyp) ? hyp : (chain || []);
+                                    return list.length > 0 ? (
+                                        <div>
+                                            <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Hypotheses chain</h4>
+                                            <div className="flex flex-col gap-2 border-l-2 border-slate-200 pl-4">
+                                                {list.map((h: any, i: number) => (
+                                                    <div key={i} className="text-sm text-slate-700">
+                                                        {typeof h === 'string' ? h : (<><span className="font-semibold">{h.title}</span>{h.description && ` — ${h.description}`}</>)}
+                                                    </div>
+                                                ))}
                                             </div>
-                                            <span className="font-mono text-[10px] text-slate-400 font-semibold">{log.timestamp}</span>
                                         </div>
-                                        <p className="text-sm text-slate-700 font-medium italic mt-2 border-l-2 border-slate-300 pl-3">
-                                            "{log.reasoning}"
-                                        </p>
-                                    </div>
+                                    ) : null;
+                                })()}
+                                {latestCase.recommended_plan && (() => {
+                                    const rp = typeof latestCase.recommended_plan === 'string'
+                                        ? (() => { try { return latestCase.recommended_plan!.startsWith('{') ? JSON.parse(latestCase.recommended_plan as string) : { name: latestCase.recommended_plan }; } catch { return { name: latestCase.recommended_plan }; } })()
+                                        : (latestCase.recommended_plan as RecommendedPlan);
+                                    return (
+                                        <div>
+                                            <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Recommended plan</h4>
+                                            <p className="text-sm text-slate-700 font-medium">{rp.name ?? '—'}</p>
+                                            {rp.actions?.length ? (
+                                                <ul className="list-disc list-inside mt-1 text-sm text-slate-600">{rp.actions.map((a, i) => <li key={i}>{a}</li>)}</ul>
+                                            ) : null}
+                                        </div>
+                                    );
+                                })()}
+                            </motion.div>
+                        )}
 
-                                    <div className="p-4 bg-slate-900 text-green-400 font-mono text-[11px] overflow-x-auto">
-                                        <pre>{JSON.stringify(log.data, null, 2)}</pre>
+                        {pendingProposal && (() => {
+                            const rp = latestCase?.recommended_plan;
+                            const plan = typeof rp === 'string' ? (() => { try { return rp.startsWith('{') ? JSON.parse(rp) : null; } catch { return null; } })() : (rp as RecommendedPlan | undefined);
+                            const cost = plan?.expected_cost_usd ?? (pendingProposal.diff as any)?.expected_cost_usd;
+                            const lossPrevented = plan?.expected_loss_prevented_usd ?? (pendingProposal.diff as any)?.expected_loss_prevented_usd;
+                            const delayDays = plan?.expected_delay_days ?? (pendingProposal.diff as any)?.expected_delay_days;
+                            const name = plan?.name ?? pendingProposal.entity_type;
+                            const actions = plan?.actions ?? (pendingProposal.diff && typeof (pendingProposal.diff as any).actions === 'object' ? (pendingProposal.diff as any).actions : []);
+                            const summary = [
+                                name,
+                                Array.isArray(actions) && actions.length ? ` + ${actions.slice(0, 2).join('; ')}` : '',
+                                cost != null ? `  Estimated cost: $${Number(cost).toLocaleString()}` : '',
+                                lossPrevented != null ? `  |  Loss prevented: $${Number(lossPrevented).toLocaleString()}` : '',
+                                delayDays != null ? `  |  Lead time saved: ${delayDays} days` : ''
+                            ].filter(Boolean).join('');
+                            return (
+                                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+                                    <span className="text-sm font-medium text-slate-800">
+                                        Agent recommends: {summary || `Plan ${pendingProposal.entity_id}`}
+                                    </span>
+                                    <div className="flex gap-2">
+                                        <button onClick={() => handleApprove('approve')} className="px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm font-medium">APPROVE</button>
+                                        <button onClick={() => handleApprove('reject')} className="px-3 py-1.5 bg-rose-600 text-white rounded-lg text-sm font-medium">REJECT</button>
                                     </div>
-                                </motion.div>
-                            ))}
-                        </AnimatePresence>
-                        <div ref={logEndRef} className="h-4" />
+                                </div>
+                            );
+                        })()}
                     </div>
                 </section>
 
-                {/* Right Sidebar: Live Analytics */}
+                {/* Right: Risk Matrix + Supply Chain Health + Save */}
                 <aside className="lg:col-span-3 p-6 bg-white">
                     <h2 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-6 border-b border-slate-100 pb-2">Live Risk Matrix</h2>
-
-                    <div className="aspect-square border border-slate-200 bg-slate-50 relative mb-10 rounded-lg shadow-inner overflow-hidden">
+                    <div className="aspect-square border border-slate-200 bg-slate-50 relative mb-10 rounded-lg overflow-hidden">
                         <div className="absolute inset-0 grid grid-cols-2 grid-rows-2">
                             <div className="border-r border-b border-slate-200 bg-emerald-50/30"></div>
                             <div className="border-b border-slate-200 bg-amber-50/30"></div>
                             <div className="border-r border-slate-200 bg-amber-50/30"></div>
                             <div className="bg-rose-50/30"></div>
                         </div>
-
-                        <div className="absolute bottom-2 left-0 w-full text-center text-[10px] font-bold text-slate-400 uppercase tracking-widest">Probability &rarr;</div>
-                        <div className="absolute top-0 left-2 h-full flex items-center text-[10px] font-bold text-slate-400 uppercase tracking-widest [writing-mode:vertical-lr] rotate-180">&larr; Impact</div>
-
-                        {/* Risk Points */}
-                        {logs.filter(l => l.agent === "Risk Reasoning Agent").map((l, idx) => (
-                            <motion.div
-                                key={idx}
-                                initial={{ scale: 0 }}
-                                animate={{ scale: 1 }}
+                        {latestCase?.scores && (
+                            <div
                                 className="absolute w-5 h-5 bg-rose-500 rounded-full border-2 border-white shadow-md z-10"
                                 style={{
-                                    left: `${l.data.probability_score * 100}%`,
-                                    bottom: `${l.data.impact_score * 100}%`,
+                                    left: `${(scores.probability ?? likelihood) / 100 * 100}%`,
+                                    bottom: `${(scores.impact ?? impact) / 100 * 100}%`,
                                     transform: 'translate(-50%, 50%)'
                                 }}
-                            >
-                                <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 whitespace-nowrap bg-slate-800 text-white px-2.5 py-1 rounded shadow-lg text-[10px] font-mono font-bold">
-                                    SCORE: {l.data.risk_score}
-                                </div>
-                            </motion.div>
-                        ))}
+                            />
+                        )}
                     </div>
-
                     <div className="space-y-8">
                         <div>
                             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-4 border-b border-slate-100 pb-2">Supply Chain Health</h3>
@@ -335,7 +426,13 @@ export default function LiveSimulation() {
                                 <HealthMetric label="Safety Stock" value="10d" status="warning" />
                             </div>
                         </div>
-
+                        <button
+                            onClick={saveAsRiskCase}
+                            disabled={!latestCase || savingCase}
+                            className="w-full py-3 px-4 bg-blue-600 text-white rounded-xl font-semibold text-sm hover:bg-blue-700 disabled:opacity-50"
+                        >
+                            {savingCase ? 'Saving...' : 'Save as Risk Case'}
+                        </button>
                         <div className="p-5 border border-slate-200 bg-slate-900 text-slate-300 rounded-xl shadow-md">
                             <h3 className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-3 border-b border-slate-700 pb-2">System Directives</h3>
                             <ul className="text-xs font-mono font-medium space-y-3">
@@ -351,31 +448,27 @@ export default function LiveSimulation() {
     );
 }
 
-function getAgentIcon(agent: string) {
-    switch (agent) {
-        case 'Perception Agent': return <Globe className="w-5 h-5" />;
-        case 'Risk Reasoning Agent': return <Brain className="w-5 h-5" />;
-        case 'Planning Agent': return <Zap className="w-5 h-5" />;
-        case 'Action Agent': return <Shield className="w-5 h-5" />;
-        case 'Reflection Agent': return <RefreshCcw className="w-5 h-5" />;
-        case 'Memory Module': return <Database className="w-5 h-5" />;
-        default: return <Activity className="w-5 h-5" />;
-    }
+function Gauge({ label, value }: { label: string; value: number }) {
+    const pct = Math.min(100, Math.max(0, value));
+    const color = pct >= 70 ? 'border-rose-500 text-rose-600' : pct >= 40 ? 'border-amber-500 text-amber-600' : 'border-emerald-500 text-emerald-600';
+    return (
+        <div className="flex flex-col items-center">
+            <div className={`w-16 h-16 rounded-full border-4 flex items-center justify-center ${color}`}>
+                <span className="font-bold text-lg">{pct}</span>
+            </div>
+            <span className="text-[10px] font-semibold text-slate-500 uppercase mt-1">{label}</span>
+        </div>
+    );
 }
 
-function HealthMetric({ label, value, status }: { label: string, value: string, status: 'nominal' | 'warning' | 'critical' }) {
-    const statusColor = {
-        nominal: 'bg-emerald-500 shadow-emerald-500/50',
-        warning: 'bg-amber-500 shadow-amber-500/50',
-        critical: 'bg-rose-500 shadow-rose-500/50'
-    }[status];
-
+function HealthMetric({ label, value, status }: { label: string; value: string; status: 'nominal' | 'warning' | 'critical' }) {
+    const statusColor = { nominal: 'bg-emerald-500', warning: 'bg-amber-500', critical: 'bg-rose-500' }[status];
     return (
         <div className="flex justify-between items-center p-3 border border-slate-100 bg-slate-50 rounded-lg">
             <span className="text-xs font-semibold text-slate-600">{label}</span>
             <div className="flex items-center gap-3">
                 <span className="font-mono text-sm font-bold text-slate-800">{value}</span>
-                <div className={`w-2.5 h-2.5 rounded-full shadow-sm ${statusColor}`}></div>
+                <div className={`w-2.5 h-2.5 rounded-full ${statusColor}`}></div>
             </div>
         </div>
     );

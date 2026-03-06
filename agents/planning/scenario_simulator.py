@@ -2,10 +2,9 @@ from google.adk.agents import LlmAgent
 
 def build_scenario_simulator() -> LlmAgent:
     return LlmAgent(
-        id="scenario_simulator",
-        name="Scenario Simulator Agent",
+        name="scenario_simulator",
         description="Simulates the outcomes of the candidate plans.",
-        instructions="""You are the Scenario Simulator.
+        instruction="""You are the Scenario Simulator.
 Your job is to:
 1. Receive candidate plans from the Plan Generator.
 2. For each plan, predict the outcome on the business context (e.g., reduction in delay risk, expected cost based on action multipliers, and estimated loss prevented).

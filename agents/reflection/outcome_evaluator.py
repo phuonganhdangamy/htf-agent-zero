@@ -23,10 +23,9 @@ def evaluate_outcome(case_id: str) -> str:
 
 def build_outcome_evaluator() -> LlmAgent:
     return LlmAgent(
-        id="outcome_evaluator",
-        name="Outcome Evaluator Agent",
+        name="outcome_evaluator",
         description="Compares predicted outcome vs actual executed outcome.",
-        instructions="""You are the Outcome Evaluator.
+        instruction="""You are the Outcome Evaluator.
 Your job is to:
 1. Receive the case_id and outcome stats context.
 2. Call `evaluate_outcome` to fetch data on whether the expected risk reduction was achieved.

@@ -10,6 +10,9 @@ class RunRequest(BaseModel):
     company_id: str
     trigger: str
     context: Optional[Dict[str, Any]] = None
+    scenario_text: Optional[str] = None
+    severity: Optional[int] = None
+    urgency: Optional[int] = None
 
 class ApproveRequest(BaseModel):
     proposal_id: str
@@ -18,12 +21,24 @@ class ApproveRequest(BaseModel):
 
 @router.post("/run")
 async def run_agent(request: RunRequest):
-    result = await run_pipeline(request.company_id, request.trigger, request.context)
+    context = request.context or {}
+    if request.scenario_text is not None:
+        context["scenario_text"] = request.scenario_text
+    if request.severity is not None:
+        context["severity"] = request.severity
+    if request.urgency is not None:
+        context["urgency"] = request.urgency
+    result = await run_pipeline(request.company_id, request.trigger, context)
     return result
 
 @router.get("/cases")
-def get_cases():
-    response = supabase.table("risk_cases").select("*").order("created_at", desc=True).execute()
+def get_cases(status: Optional[str] = None, limit: int = 10, order: str = "created_at.desc"):
+    query = supabase.table("risk_cases").select("*")
+    if status:
+        query = query.eq("status", status)
+    order_col, order_dir = order.split(".") if "." in order else ("created_at", "desc")
+    query = query.order(order_col, desc=(order_dir == "desc")).limit(limit)
+    response = query.execute()
     return response.data
 
 @router.get("/cases/{case_id}")

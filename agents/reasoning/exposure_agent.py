@@ -2,10 +2,9 @@ from google.adk.agents import LlmAgent
 
 def build_exposure_agent() -> LlmAgent:
     return LlmAgent(
-        id="exposure_agent",
-        name="Exposure Agent",
+        name="exposure_agent",
         description="Maps event clusters to business exposure (suppliers, routes, facilities, inventory).",
-        instructions="""You are the Exposure Agent in an autonomous supply chain system.
+        instruction="""You are the Exposure Agent in an autonomous supply chain system.
 Your job is to:
 1. Take the EventClusters and the Supply Chain Snapshot (suppliers, facilities, inventory, BOM) passed in context.
 2. Identify which assets (suppliers, routes, facilities) are geographically or contractually exposed to the clusters.

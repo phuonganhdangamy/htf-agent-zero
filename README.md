@@ -44,18 +44,24 @@ The repository is heavily scaffolded and successfully runs the foundational infr
 4. **Context Propagation:** Validate that the shared state / scratchpad correctly shares information like `case_id` or `proposal_id` from the Reasoning agent over to the Action agent so that the database records link properly.
 
 ## Running the Application Locally
-**Backend:**
+
+You need **two terminals**: one for the backend (port 8000) and one for the frontend. **Run Cycle** in Live Simulation calls `POST http://localhost:8000/api/agent/run` — if you see `ERR_CONNECTION_REFUSED`, start the backend first.
+
+**Backend (Terminal 1):**
 ```bash
+# From repo root. Use a venv so uvicorn is available:
 python -m venv venv
-.\venv\Scripts\activate
+.\venv\Scripts\activate    # Windows
+# source venv/bin/activate # macOS/Linux
 pip install -r requirements.txt
 python -m uvicorn backend.main:app --reload --port 8000
 ```
+Leave this running. You should see `Uvicorn running on http://127.0.0.1:8000`.
 
-**Frontend:**
+**Frontend (Terminal 2):**
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-*(Ensure `frontend/.env` is setup with your `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`)*
+*(Ensure `frontend/.env` has `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. Optional: `VITE_API_URL=http://localhost:8000` if your API is elsewhere.)*

@@ -15,10 +15,9 @@ def save_draft_artifact(artifact_json: str) -> str:
 
 def build_drafting_agent() -> LlmAgent:
     return LlmAgent(
-        id="drafting_agent",
-        name="Drafting Agent",
+        name="drafting_agent",
         description="Drafts human-readable messages (emails, tickets) for stakeholders about the proposed change.",
-        instructions="""You are the Drafting Agent.
+        instruction="""You are the Drafting Agent.
 Your job is to:
 1. Receive the Execution Plan and the Change Proposal.
 2. Draft an email or alert explaining what is happening, what action is proposed, and why it is necessary.

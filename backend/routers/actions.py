@@ -23,7 +23,8 @@ class ActionCreateRequest(BaseModel):
 @router.post("/risk_cases")
 def create_risk_case(case: Dict[str, Any]):
     res = supabase.table("risk_cases").insert(case).execute()
-    return res.data[0] if res.data else None
+    row = res.data[0] if res.data else None
+    return {"case_id": row["case_id"]} if row and "case_id" in row else {"case_id": None}
 
 @router.post("/plan_options")
 def create_plan_option(plan: CreatePlanRequest):

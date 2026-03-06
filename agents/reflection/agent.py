@@ -7,10 +7,9 @@ def build_reflection_coordinator() -> SequentialAgent:
     extractor = build_lesson_extractor()
     
     pipeline = SequentialAgent(
-        id="reflection_coordinator",
-        name="Reflection Coordinator",
+        name="reflection_coordinator",
         description="Coordinates evaluating action outcomes and updating system memory.",
-        agents=[evaluator, extractor]
+        sub_agents=[evaluator, extractor]
     )
     
     return pipeline
