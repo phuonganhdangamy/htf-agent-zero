@@ -4,7 +4,7 @@ import json
 from google.adk.tools import FunctionTool
 
 @FunctionTool
-def fetch_gdacs_alerts(countries: list) -> str:
+def fetch_gdacs_alerts(countries: list[str]) -> str:
     """
     Fetches real active disaster alerts from GDACS and filters by given countries.
     """
@@ -24,9 +24,8 @@ def fetch_gdacs_alerts(countries: list) -> str:
             if any(c.lower() in title_text.lower() or c.lower() in desc_text.lower() for c in countries):
                 events.append({
                     "title": title_text,
-                    "description": desc_text,
+                    "summary": desc_text,
                     "source": "GDACS",
-                    "severity": "High" if "Red" in title_text else "Medium" if "Orange" in title_text else "Low",
                     "link": item.find('link').text if item.find('link') is not None else ""
                 })
         
@@ -34,13 +33,13 @@ def fetch_gdacs_alerts(countries: list) -> str:
         if not events and "Taiwan" in countries:
             events.append({
                 "title": "[DEMO] Orange Alert for Marine Hazard in Taiwan Strait",
-                "description": "A severe marine hazard and congestion in the Taiwan Strait is risking shipment delays out of Kaohsiung.",
+                "summary": "A severe marine hazard and congestion in the Taiwan Strait is risking shipment delays out of Kaohsiung.",
                 "country": "Taiwan",
                 "source": "GDACS",
-                "severity": "Orange",
                 "link": "https://www.gdacs.org"
             })
             
         return json.dumps(events)
     except Exception as e:
-        return json.dumps({"error": f"Failed to fetch GDACS: {str(e)}"})
+        print(f"Warning: Failed to fetch GDACS: {str(e)}")
+        return json.dumps([])

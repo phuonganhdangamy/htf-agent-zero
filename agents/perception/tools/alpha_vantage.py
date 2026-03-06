@@ -4,14 +4,15 @@ import requests
 from google.adk.tools import FunctionTool
 
 @FunctionTool
-def fetch_financial_news(keywords: list) -> str:
+def fetch_financial_news(keywords: list[str]) -> str:
     """
     Fetches financial news and sentiment from Alpha Vantage based on keywords/tickers.
     Requires ALPHA_VANTAGE_API_KEY.
     """
     api_key = os.environ.get("ALPHA_VANTAGE_API_KEY")
     if not api_key:
-        return json.dumps([{"error": "ALPHA_VANTAGE_API_KEY missing in environment variables."}])
+        print("Warning: ALPHA_VANTAGE_API_KEY missing.")
+        return json.dumps([])
         
     url = "https://www.alphavantage.co/query"
     events = []
@@ -42,12 +43,12 @@ def fetch_financial_news(keywords: list) -> str:
         for item in data.get("feed", [])[:10]:
             events.append({
                 "title": item.get("title", ""),
-                "description": item.get("summary", ""),
+                "summary": item.get("summary", ""),
                 "source": "Alpha Vantage",
-                "severity": "Medium" if item.get("overall_sentiment_score", 0) < -0.15 else "Low",
                 "link": item.get("url", "")
             })
             
         return json.dumps(events)
     except Exception as e:
-        return json.dumps([{"error": f"Alpha Vantage API error: {str(e)}"}])
+        print(f"Warning: Alpha Vantage API error: {str(e)}")
+        return json.dumps([])
