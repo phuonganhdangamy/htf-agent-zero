@@ -63,6 +63,7 @@ export default function ActionsApproval() {
     const [expandedId, setExpandedId] = useState<string | null>(null);
     const [draftModal, setDraftModal] = useState<{ artifact: DraftArtifact; proposalId: string; actionRunId: string } | null>(null);
     const [editedBody, setEditedBody] = useState<string>('');
+    const [draftApproved, setDraftApproved] = useState(false);
     // #17 dedup: track which proposals are currently being approved/rejected
     const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
 
@@ -168,9 +169,11 @@ export default function ActionsApproval() {
             const artifact = data as DraftArtifact;
             const sp = artifact.structured_payload || {};
             setEditedBody((sp.body as string) || artifact.preview || '');
+            setDraftApproved(false);
             setDraftModal({ artifact, proposalId, actionRunId });
         } else {
             setEditedBody('[No preview available]');
+            setDraftApproved(false);
             setDraftModal({
                 artifact: { artifact_id: artifactId, type: 'email', preview: '[No preview available]' },
                 proposalId,
@@ -248,7 +251,7 @@ export default function ActionsApproval() {
                 approved_by: 'Omni Admin',
                 decision: 'approve',
             });
-            setDraftModal(null);
+            setDraftApproved(true);
             fetchActions();
         } catch (err) {
             console.error(err);
@@ -341,6 +344,7 @@ export default function ActionsApproval() {
                             className="w-full min-h-[350px] border border-slate-200 rounded-lg px-3 py-2 text-sm font-sans text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 resize-vertical"
                             value={editedBody}
                             onChange={(e) => setEditedBody(e.target.value)}
+                            disabled={draftApproved}
                         />
                     </div>
                 </div>
@@ -576,8 +580,13 @@ export default function ActionsApproval() {
                                      draftModal.artifact.type === 'erp_diff' ? 'ERP Change Diff' :
                                      draftModal.artifact.type === 'slack_message' ? 'Slack Message' : 'Draft Artifact'}
                                 </h3>
-                                <span className="text-xs px-2 py-0.5 bg-amber-100 text-amber-700 rounded font-semibold uppercase">
-                                    {draftModal.artifact.status || 'draft'}
+                                <span className={cn(
+                                    "text-xs px-2 py-0.5 rounded font-semibold uppercase",
+                                    draftApproved
+                                        ? "bg-emerald-100 text-emerald-700"
+                                        : "bg-amber-100 text-amber-700"
+                                )}>
+                                    {draftApproved ? 'approved' : (draftModal.artifact.status || 'draft')}
                                 </span>
                             </div>
                             <button onClick={() => setDraftModal(null)} className="p-1 hover:bg-slate-100 rounded">
@@ -596,12 +605,19 @@ export default function ActionsApproval() {
                             >
                                 Close
                             </button>
-                            <button
-                                onClick={handleDraftApprove}
-                                className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors flex items-center gap-2"
-                            >
-                                <Check size={16} /> Approve & Proceed
-                            </button>
+                            {draftApproved ? (
+                                <div className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg">
+                                    <CheckCircle2 size={16} />
+                                    Approved
+                                </div>
+                            ) : (
+                                <button
+                                    onClick={handleDraftApprove}
+                                    className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors flex items-center gap-2"
+                                >
+                                    <Check size={16} /> Approve & Proceed
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
