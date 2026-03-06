@@ -30,7 +30,9 @@ graph TD
 | **Activity Log** | ✅ | `audit_log` table; auto-refresh; case_id links. |
 | **Chatbot** | ✅ | Internal data + optional commodity prices (Alpha Vantage) + Google Search grounding; `POST /api/chat`. |
 | **Events Feed** | ✅ | Reads `signal_events`. |
-| **Actions / Approvals** | ✅ | List pending `change_proposals`; approve/reject via API; no commit execution yet. |
+| **Actions / Approvals** | ✅ | List pending `change_proposals`; approve/reject via API, view per-step execution timeline, and inspect typed drafts (email/ERP/Slack) via `draft_artifacts`. Commit execution still simulated. |
+| **Perception scheduler** | ✅ | Background task in `backend/main.py` periodically calls `run_perception_with_manager` to refresh `signal_events` when data is stale. |
+| **Optimization Engine (Planning)** | ✅ | Pure-Python `optimize_plans` ranks candidate plans by `feasibility_score`; exposed to the Execution Planner as a tool so plans are deterministically scored and ordered before being written to `risk_cases`. |
 | **ADK agent definitions** | ✅ | Perception, Reasoning (cluster, exposure, hypothesis, scoring), Planning, Action (change proposal, drafting, approval, commit, verification, audit), Reflection; all use valid LlmAgent/SequentialAgent/ParallelAgent params. |
 | **Full ADK pipeline execution** | ⏳ | Pipeline is built in `root_agent.py` but Run Cycle uses `agent_runner.run_risk_assessment()` instead. Full pipeline can be wired for batch/scheduled runs. |
 | **Action layer execution** | ⏳ | Change proposals are created and approved in UI; **commit to ERP**, **verification**, and **audit** are not yet triggered end-to-end. |
@@ -41,16 +43,17 @@ graph TD
 
 1. **Perception** — External signals (GDACS, GDELT, OpenWeather, etc.) via tools; normalizer writes `signal_events` to Supabase.
 2. **Reasoning** — Cluster signals, exposure mapping, hypothesis and scoring; produces RiskCase (in full ADK flow).
-3. **Planning** — Action library + scenario simulation; recommended and alternative plans.
-4. **Action** — Change proposal → drafting → HITL approval → commit → verification → audit. **Currently**: proposals created and approved; commit/verify/audit need to be wired.
+3. **Planning** — Action library + scenario simulation; Optimization Engine ranks plans by multi-objective score; recommended and alternative plans are stored on the RiskCase.
+4. **Action** — Change proposal → drafting → HITL approval → commit → verification → audit. **Currently**: proposals created and approved; commit/verify/audit and real email/ERP side-effects need to be wired.
 5. **Reflection** — Outcome evaluation and lesson extraction into memory for future planning.
 
 ## Next Steps (Architecture)
 
-- **Incorporate action layer end-to-end**: On approve, call Commit Agent (or equivalent) to push changes to ERP; then Verification and Audit agents, and write `audit_log` with `case_id`.
-- **Draft emails**: Surface `draft_artifacts` in UI; allow “Send” or edit-then-send (e.g. via email API or Slack).
+- **Incorporate action layer end-to-end**: On approve, call Commit Agent (or equivalent) to push changes to a real or sandbox ERP; then run Verification and Audit agents, and write detailed traces to `audit_log` with `case_id` and `proposal_id`.
+- **Draft emails + Emailing Agent**: Surface `draft_artifacts` in UI and add a dedicated Emailing Agent that can send approved email drafts via SMTP/API to a configurable test inbox or production distribution list, with environment-level safety switches.
 - **Ping notifications**: On new high-severity risk case or pending proposal, notify configured users (email, in-app, or webhook).
-- **Optional full ADK run**: Use `run_omni_pipeline` (or equivalent) for scheduled/batch runs so Perception → Reflection runs with real tool calls and shared state.
-- **Context propagation**: Ensure `case_id` / `proposal_id` are passed through the pipeline and appear in `audit_log` and approval flows.
+- **Optional full ADK run**: Use `run_omni_pipeline` (or a manager-backed entrypoint) for scheduled/batch runs so Perception → Reflection runs with real tool calls and shared state.
+- **Configurable optimization policy**: Make the Optimization Engine’s weights and constraints configurable via `memory_preferences` so operations teams can tune how aggressively Omni trades off cost vs service vs risk reduction.
+- **Context propagation**: Ensure `case_id` / `proposal_id` are passed through the pipeline and appear in `audit_log`, email subjects, and approval flows.
 
 For UI-to-API and table mapping, see `ui-mapping.md`.

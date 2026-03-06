@@ -1,3 +1,5 @@
+import asyncio
+import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,6 +34,7 @@ def seed_memory_patterns():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     seed_memory_patterns()
+
     # Run initial monitoring check on startup
     try:
         from backend.services.monitoring_service import check_and_alert
@@ -39,6 +42,30 @@ async def lifespan(app: FastAPI):
         print(f"[startup] monitoring check: {result}")
     except Exception as e:
         print(f"[startup] monitoring check failed: {e}")
+
+    # Start background perception polling via manager.
+    # Uses manager_service.run_perception_with_manager, which already skips
+    # redundant perception runs if fresh data exists (15-minute window).
+    async def _perception_scheduler():
+        company_id = os.environ.get("OMNI_COMPANY_ID", "ORG_DEMO")
+        # Default: every 15 minutes; override with PERCEPTION_INTERVAL_SECONDS.
+        try:
+            interval = int(os.environ.get("PERCEPTION_INTERVAL_SECONDS", "900"))
+        except ValueError:
+            interval = 900
+
+        while True:
+            try:
+                from backend.services.manager_service import run_perception_with_manager
+                result = await run_perception_with_manager(company_id=company_id)
+                print(f"[perception-scheduler] run_perception_with_manager({company_id}) -> {result.get('status')}")
+            except Exception as e:
+                print(f"[perception-scheduler] error: {e}")
+
+            await asyncio.sleep(interval)
+
+    asyncio.create_task(_perception_scheduler())
+
     yield
 
 
