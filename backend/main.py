@@ -5,9 +5,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from backend.routers import agent, erp, webhooks, events, actions, simulate, chat, monitoring
 from backend.services.supabase_client import supabase
+from pathlib import Path
 from dotenv import load_dotenv
 
+# Load repo root .env first, then backend/.env so backend-specific (e.g. EMAIL_*) are used
 load_dotenv()
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 
 def seed_memory_patterns():

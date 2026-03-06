@@ -14,12 +14,34 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
+function NavItem({ item }: { item: { title: string; icon: React.ComponentType<{ size?: number; className?: string }>; path: string; badge?: string } }) {
+    return (
+        <NavLink
+            to={item.path}
+            className={({ isActive }) => cn(
+                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
+                isActive ? "bg-slate-800 text-white" : "hover:bg-slate-800/50 hover:text-white"
+            )}
+        >
+            <item.icon size={18} className="opacity-70" />
+            <span className="flex-1">{item.title}</span>
+            {item.badge && (
+                <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                    {item.badge}
+                </span>
+            )}
+        </NavLink>
+    );
+}
+
 export default function Sidebar() {
-    const navItems = [
+    const erpItems = [
         { title: 'Dashboard', icon: LayoutDashboard, path: '/' },
         { title: 'Organization', icon: Building2, path: '/org', badge: '1' },
         { title: 'Tags', icon: Tags, path: '/tags', badge: '12' },
         { title: 'Users', icon: Users, path: '/users' },
+    ];
+    const omniItems = [
         { title: 'Events Feed', icon: Activity, path: '/events' },
         { title: 'Risk Cases', icon: ShieldAlert, path: '/cases' },
         { title: 'Actions', icon: CheckSquare, path: '/actions' },
@@ -35,27 +57,28 @@ export default function Sidebar() {
             </div>
 
             <div className="flex flex-col flex-1 pb-4 overflow-y-auto">
-                <nav className="flex-1 px-4 space-y-1">
-                    {navItems.map((item) => (
-                        <NavLink
-                            key={item.title}
-                            to={item.path}
-                            className={({ isActive }) => cn(
-                                "flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                                isActive
-                                    ? "bg-slate-800 text-white"
-                                    : "hover:bg-slate-800/50 hover:text-white"
-                            )}
-                        >
-                            <item.icon size={18} className={cn("opacity-70")} />
-                            <span className="flex-1">{item.title}</span>
-                            {item.badge && (
-                                <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
-                                    {item.badge}
-                                </span>
-                            )}
-                        </NavLink>
-                    ))}
+                <nav className="flex-1 px-4">
+                    <div className="mb-2">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-3 py-2">
+                            Omni ERP
+                        </div>
+                        <div className="space-y-1">
+                            {erpItems.map((item) => (
+                                <NavItem key={item.title} item={item} />
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="mt-6 pt-4 border-t border-slate-700/60">
+                        <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-3 py-2">
+                            Omni
+                        </div>
+                        <div className="space-y-1">
+                            {omniItems.map((item) => (
+                                <NavItem key={item.title} item={item} />
+                            ))}
+                        </div>
+                    </div>
                 </nav>
 
                 <div className="px-4 mt-8">

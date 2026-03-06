@@ -34,6 +34,10 @@ def run_step_4_send_email(action_run_id: str, approved_by: str) -> None:
 
     if artifact:
         send_result = send_email_for_draft(artifact, approved_by=approved_by)
+        if send_result.get("sent"):
+            print(f"[email] Sent to {send_result.get('to')} — subject: {send_result.get('subject', '')[:60]}")
+        else:
+            print(f"[email] Not sent — reason: {send_result.get('reason', 'unknown')} — {send_result.get('error', '')}")
         # Update draft status based on result, but never throw here.
         new_status = "sent" if send_result.get("sent") else artifact.get("status") or "pending"
         supabase.table("draft_artifacts").update({"status": new_status}).eq("artifact_id", artifact_id).execute()

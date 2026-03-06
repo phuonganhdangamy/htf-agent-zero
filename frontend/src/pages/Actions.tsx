@@ -172,6 +172,15 @@ export default function ActionsApproval() {
         return !prevDone;
     };
 
+    /** Latest workflow status for table: description of first PENDING step, or last step if all done. */
+    const getCurrentStepSummary = (steps: ActionStep[]): string => {
+        if (!steps?.length) return '—';
+        const pendingIdx = steps.findIndex((s) => s.status === 'PENDING');
+        const step = pendingIdx >= 0 ? steps[pendingIdx] : steps[steps.length - 1];
+        const desc = (step?.description ?? '').trim();
+        return desc || '—';
+    };
+
     // #7: fetch full draft artifact including type and structured_payload
     const openDraftModal = async (artifactId: string, proposalId: string, actionRunId: string) => {
         const { data } = await supabase
@@ -436,6 +445,7 @@ export default function ActionsApproval() {
                                 <th className="px-6 py-4 font-medium">Target Entity / Context</th>
                                 <th className="px-6 py-4 font-medium">Proposed Changes</th>
                                 <th className="px-6 py-4 font-medium">Status</th>
+                                <th className="px-6 py-4 font-medium">Current step</th>
                                 <th className="px-6 py-4 font-medium">Date</th>
                                 <th className="px-6 py-4 font-medium text-right">Actions</th>
                             </tr>
@@ -493,6 +503,11 @@ export default function ActionsApproval() {
                                                 {act.status}
                                             </span>
                                         </td>
+                                        <td className="px-6 py-4 align-top max-w-[200px]">
+                                            <span className="text-xs text-slate-700 font-medium">
+                                                {getCurrentStepSummary(steps)}
+                                            </span>
+                                        </td>
                                         <td className="px-6 py-4 text-slate-500 align-top">
                                             {act.created_at ? format(new Date(act.created_at), 'MMM d, HH:mm') : 'Unknown'}
                                         </td>
@@ -522,7 +537,7 @@ export default function ActionsApproval() {
                                     </tr>
                                     {isExpanded && (
                                         <tr key={`${act.id}-expand`} className="bg-slate-50/50">
-                                            <td colSpan={6} className="px-6 py-4 border-t border-slate-200">
+                                            <td colSpan={7} className="px-6 py-4 border-t border-slate-200">
                                                 <div className="pl-6 space-y-2">
                                                     <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3">Step-by-step breakdown</h4>
                                                     {steps.map((s, idx) => {
