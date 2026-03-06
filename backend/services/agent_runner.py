@@ -3,7 +3,7 @@ import json
 import os
 import time
 import uuid
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from backend.services.supabase_client import supabase
 
 # Lazy Gemini client
@@ -21,27 +21,41 @@ def _get_gemini_client():
     return _gemini_client
 
 
-def _build_live_context(company_id: str) -> Dict[str, Any]:
-    """Pull REAL data from Supabase for LLM context."""
+def _build_live_context(company_id: str, focus_suppliers: Optional[List[str]] = None, focus_materials: Optional[List[str]] = None) -> Dict[str, Any]:
+    """Pull REAL data from Supabase for LLM context. Optionally filter by focus_suppliers and focus_materials."""
     live = {}
     try:
-        # Suppliers: criticality, single_source, country (no org_id on suppliers table)
         supp = supabase.table("suppliers").select("supplier_id, supplier_name, country, criticality_score, single_source, lead_time_days").execute()
-        live["suppliers"] = supp.data or []
+        all_suppliers = supp.data or []
+        if focus_suppliers:
+            ids = set(focus_suppliers)
+            live["suppliers"] = [s for s in all_suppliers if s.get("supplier_id") in ids]
+        else:
+            live["suppliers"] = all_suppliers
 
-        # Inventory: days_of_inventory_remaining per material
         inv = supabase.table("inventory").select("material_id, facility_id, supplier_id, current_inventory_units, daily_usage, days_of_inventory_remaining, safety_stock_days").execute()
-        live["inventory"] = inv.data or []
+        all_inv = inv.data or []
+        if focus_suppliers:
+            ids = set(focus_suppliers)
+            all_inv = [i for i in all_inv if i.get("supplier_id") in ids]
+        if focus_materials:
+            mat_ids = set(focus_materials)
+            all_inv = [i for i in all_inv if i.get("material_id") in mat_ids]
+        live["inventory"] = all_inv
 
-        # Open POs: ETAs, ship modes
         po = supabase.table("purchase_orders").select("po_id, supplier_id, material_id, quantity, eta, ship_mode, status, delay_risk").eq("status", "open").execute()
-        live["purchase_orders"] = po.data or []
+        all_po = po.data or []
+        if focus_suppliers:
+            ids = set(focus_suppliers)
+            all_po = [p for p in all_po if p.get("supplier_id") in ids]
+        if focus_materials:
+            mat_ids = set(focus_materials)
+            all_po = [p for p in all_po if p.get("material_id") in mat_ids]
+        live["purchase_orders"] = all_po
 
-        # Memory preferences: cost cap, fill rate target
         prefs = supabase.table("memory_preferences").select("*").eq("org_id", company_id).limit(1).execute()
         live["memory_preferences"] = prefs.data[0] if prefs.data else {}
 
-        # Memory patterns for context
         pat = supabase.table("memory_patterns").select("*").limit(20).execute()
         live["memory_patterns"] = pat.data or []
     except Exception as e:
@@ -86,6 +100,11 @@ Output ONLY valid JSON matching this exact schema:
     "expected_delay_days": <number>,
     "service_level": <0-1>
   },
+  "reasoning_summary": [
+    "<bullet 1: why this plan was chosen, e.g. SUPP_044 is single-source with X days cover>",
+    "<bullet 2: e.g. PO_8821 ETA is ... >",
+    "<3-5 bullets total explaining exactly why this plan over alternatives>"
+  ],
   "alternative_plans": [
     {
       "plan_id": "PLAN_B",
@@ -99,14 +118,65 @@ Output ONLY valid JSON matching this exact schema:
 }"""
 
 
-async def run_risk_assessment(company_id: str, scenario_text: str, severity: int, urgency: int) -> Dict[str, Any]:
+def _directives_prompt_block(directives: Optional[Dict[str, bool]], cost_cap_override: Optional[float]) -> str:
+    """Build prompt block for active system directives and cost cap."""
+    lines = []
+    if directives:
+        lines.append("Active system directives (treat as hard constraints):")
+        for key, on in directives.items():
+            name = key.upper().replace("_", "_")
+            lines.append(f"  {name}={str(on).lower()}")
+        if directives.get("enforce_cost_cap") and cost_cap_override is not None:
+            lines.append(f"  ENFORCE_COST_CAP=true means do not recommend any plan exceeding ${cost_cap_override:,.0f} under any circumstance.")
+    if cost_cap_override is not None and (not directives or directives.get("enforce_cost_cap")):
+        lines.append(f"Cost cap for this run: ${cost_cap_override:,.0f}. Do not suggest plans above this.")
+    return "\n".join(lines) if lines else ""
+
+async def run_risk_assessment(company_id: str, scenario_text: str, severity: int, urgency: int, run_context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Fetch live data, call Gemini, save real RiskCase to Supabase. No mock data."""
-    live_context = _build_live_context(company_id)
+    run_ctx = run_context or {}
+    focus_suppliers = run_ctx.get("focus_suppliers")
+    focus_materials = run_ctx.get("focus_materials")
+    flagged_regions = run_ctx.get("flagged_regions") or []
+    directives = run_ctx.get("directives") or {}
+    budget_flexibility = run_ctx.get("budget_flexibility")
+    risk_tolerance = run_ctx.get("risk_tolerance")
+    timeline = run_ctx.get("timeline")
+
+    live_context = _build_live_context(company_id, focus_suppliers=focus_suppliers, focus_materials=focus_materials)
+    prefs = live_context.get("memory_preferences") or {}
+    obj = prefs.get("objectives") or {}
+    base_cap = obj.get("cost_cap_usd") or obj.get("cost_cap") or 50000
+    if budget_flexibility == "flexible":
+        cost_cap_override = base_cap * 2
+    elif budget_flexibility == "emergency":
+        cost_cap_override = None
+    else:
+        cost_cap_override = base_cap
+
+    directives_block = _directives_prompt_block(directives, cost_cap_override)
+    constraints = []
+    if focus_suppliers:
+        constraints.append(f"Consider ONLY these suppliers in mitigation plans: {', '.join(focus_suppliers)}. Do not recommend plans involving other suppliers.")
+    if focus_materials:
+        constraints.append(f"Focus on materials: {', '.join(focus_materials)}.")
+    if flagged_regions:
+        constraints.append(f"Weight risk signals more heavily for these regions: {', '.join(flagged_regions)}.")
+    if risk_tolerance:
+        constraints.append(f"Risk tolerance for this run: {risk_tolerance}. conservative=prefer backup supplier even if expensive; balanced=optimize cost vs service; aggressive=accept higher risk to minimize cost.")
+    if timeline == "critical":
+        constraints.append("Timeline is critical (<2 weeks). Filter out any mitigation with lead time or delay beyond 2 weeks.")
+    elif timeline == "tight":
+        constraints.append("Timeline is tight (30 days). Prefer mitigations that can execute within 30 days.")
+    constraints_text = "\n".join(constraints) if constraints else ""
+
     user_content = f"""Scenario: {scenario_text}
 Severity: {severity}/100
 Urgency: {urgency}/100
+{directives_block}
+{constraints_text}
 
-Live operational context:
+Live operational context (already filtered by focus suppliers/materials if provided):
 {json.dumps(live_context, indent=2, default=str)}"""
 
     from google.genai import types
@@ -156,6 +226,9 @@ Live operational context:
     rec = payload.get("recommended_plan") or {}
     expected_cost = rec.get("expected_cost_usd")
     expected_loss = rec.get("expected_loss_prevented_usd")
+    reasoning_summary = payload.get("reasoning_summary")
+    if not isinstance(reasoning_summary, list):
+        reasoning_summary = []
 
     row = {
         "case_id": case_id,
@@ -168,6 +241,9 @@ Live operational context:
         "hypotheses": payload.get("hypotheses"),
         "recommended_plan": json.dumps(rec) if isinstance(rec, dict) else (rec if isinstance(rec, str) else ""),
         "alternative_plans": payload.get("alternative_plans") or [],
+        "reasoning_summary": reasoning_summary,
+        "iteration_count": 0,
+        "plan_iterations": [],
         "expected_risk_reduction": payload.get("expected_risk_reduction"),
         "expected_cost": expected_cost,
         "expected_loss_prevented": expected_loss,
@@ -198,18 +274,216 @@ Live operational context:
     return {"status": "completed", "company_id": company_id, "case_id": case_id}
 
 
+def _severity_from_order_volume(order_volume: Optional[str]) -> int:
+    mult = {"routine": 1.0, "large": 1.3, "critical": 1.6, "emergency": 2.0}.get((order_volume or "").lower(), 1.3)
+    return min(100, int(50 * mult))
+
+def _urgency_from_timeline(timeline: Optional[str]) -> int:
+    return {"flexible": 30, "standard": 50, "tight": 75, "critical": 95}.get((timeline or "").lower(), 75)
+
 async def run_pipeline(company_id: str, trigger: str, context: dict = None):
     """Run real LLM risk assessment; no mock data."""
     ctx = context or {}
     scenario_text = (ctx.get("scenario_text") or trigger or "").strip()
-    severity = int(ctx.get("severity", 70))
-    urgency = int(ctx.get("urgency", 75))
+    if ctx.get("severity") is not None:
+        severity = int(ctx["severity"])
+    else:
+        severity = _severity_from_order_volume(ctx.get("order_volume"))
+    if ctx.get("urgency") is not None:
+        urgency = int(ctx["urgency"])
+    else:
+        urgency = _urgency_from_timeline(ctx.get("timeline"))
+    run_context = {
+        "focus_suppliers": ctx.get("focus_suppliers"),
+        "focus_materials": ctx.get("focus_materials"),
+        "flagged_regions": ctx.get("flagged_regions"),
+        "directives": ctx.get("directives"),
+        "budget_flexibility": ctx.get("budget_flexibility"),
+        "risk_tolerance": ctx.get("risk_tolerance"),
+        "timeline": ctx.get("timeline"),
+    }
     try:
-        result = await run_risk_assessment(company_id, scenario_text, severity, urgency)
+        result = await run_risk_assessment(company_id, scenario_text, severity, urgency, run_context=run_context)
         return result
     except Exception as e:
         print(f"Error in run_risk_assessment: {e}")
         return {"status": "error", "message": str(e)}
+
+
+RERUN_PLAN_SYSTEM_PROMPT = """You are Omni's PlanGenerator. The user REJECTED a previous mitigation plan. Your job is to generate ONE alternative plan that respects the new constraints. Do NOT re-run perception, scoring, or exposure — use the existing risk case context only.
+
+Output ONLY valid JSON:
+{
+  "recommended_plan": {
+    "plan_id": "PLAN_B",
+    "name": "<specific action name>",
+    "actions": [<list of specific action strings>],
+    "expected_cost_usd": <number>,
+    "expected_loss_prevented_usd": <number>,
+    "expected_delay_days": <number>,
+    "service_level": <0-1>
+  },
+  "reasoning_summary": ["<bullet 1>", "<bullet 2>", "<3-5 bullets why this new plan>"],
+  "execution_steps": ["[PlanGenerator] Rerunning with user constraints...", "[ScenarioSimulator] ...", "[ExecutionPlanner] Awaiting approval for revised plan"]
+}"""
+
+
+async def rerun_plan_only(
+    case_id: str,
+    rejection_reason: str,
+    feedback_text: str,
+    constraint_overrides: Dict[str, Any],
+    actor: str = "Administrator",
+) -> Dict[str, Any]:
+    """Rerun only plan generation with rejection feedback. Does NOT call Perception/Scoring. Max 3 iterations."""
+    res = supabase.table("risk_cases").select("*").eq("case_id", case_id).execute()
+    if not res.data:
+        raise ValueError(f"Risk case not found: {case_id}")
+    row = res.data[0]
+    iteration_count = int(row.get("iteration_count") or 0)
+    if iteration_count >= 3:
+        return {"status": "error", "message": "Maximum iterations (3) reached. Save scenario to Risk Cases for manual review."}
+
+    current_plan = row.get("recommended_plan")
+    if isinstance(current_plan, str):
+        try:
+            current_plan = json.loads(current_plan) if current_plan.strip().startswith("{") else {}
+        except json.JSONDecodeError:
+            current_plan = {}
+    plan_iterations = list(row.get("plan_iterations") or [])
+    plan_iterations.append({
+        "plan": current_plan,
+        "status": "rejected",
+        "rejected_reason": rejection_reason or "No reason given",
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "actor": actor,
+    })
+
+    # Mark current pending proposal as rejected
+    runs_res = supabase.table("action_runs").select("action_run_id").eq("case_id", case_id).execute()
+    run_ids = [r["action_run_id"] for r in (runs_res.data or [])]
+    if run_ids:
+        supabase.table("change_proposals").update({"status": "rejected", "approved_by": actor}).in_("action_run_id", run_ids).eq("status", "pending").execute()
+
+    # Build rerun user prompt
+    prev_plan_str = json.dumps(current_plan, indent=2) if isinstance(current_plan, dict) else str(current_plan)
+    overrides_str = json.dumps(constraint_overrides or {}, indent=2)
+    excluded = constraint_overrides.get("excluded_actions") or []
+    user_content = f"""Previous plan was REJECTED by the user.
+Rejection reason: {rejection_reason or "No reason given"}
+User feedback: {feedback_text or "None"}
+
+New constraints: {overrides_str}
+
+Generate an alternative plan that respects these new constraints.
+Do not suggest the same plan as before.
+Excluded action types: {excluded}
+
+Existing risk case context (do not recompute scores/exposure):
+headline: {row.get("headline")}
+scores: {json.dumps(row.get("scores") or {})}
+exposure: {json.dumps(row.get("exposure") or {})}
+hypotheses: {json.dumps(row.get("hypotheses") or {})}
+
+Previous (rejected) plan:
+{prev_plan_str}
+"""
+
+    from google.genai import types
+    client = _get_gemini_client()
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=f"{RERUN_PLAN_SYSTEM_PROMPT}\n\nUSER:\n{user_content}",
+        config=types.GenerateContentConfig(response_mime_type="application/json"),
+    )
+    text = response.text if hasattr(response, "text") else ""
+    if not text or not text.strip():
+        raise ValueError("Gemini returned empty response on rerun")
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        if "```" in text:
+            start = text.find("```") + 3
+            if "json" in text[:start].lower():
+                start = text.find("\n", start) + 1
+            end = text.find("```", start)
+            text = text[start:end] if end > start else text
+        payload = json.loads(text)
+
+    new_plan = payload.get("recommended_plan") or {}
+    new_reasoning = payload.get("reasoning_summary") or []
+    if not isinstance(new_reasoning, list):
+        new_reasoning = []
+    new_steps = payload.get("execution_steps") or []
+    existing_steps = list(row.get("execution_steps") or [])
+    updated_steps = existing_steps + new_steps
+
+    alternative_plans = list(row.get("alternative_plans") or [])
+    if isinstance(alternative_plans, dict):
+        alternative_plans = [alternative_plans]
+    alternative_plans.append(new_plan)
+
+    update_row = {
+        "recommended_plan": json.dumps(new_plan) if isinstance(new_plan, dict) else new_plan,
+        "reasoning_summary": new_reasoning,
+        "execution_steps": updated_steps,
+        "plan_iterations": plan_iterations,
+        "iteration_count": iteration_count + 1,
+        "alternative_plans": alternative_plans,
+        "expected_cost": new_plan.get("expected_cost_usd") if isinstance(new_plan, dict) else None,
+        "expected_loss_prevented": new_plan.get("expected_loss_prevented_usd") if isinstance(new_plan, dict) else None,
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    supabase.table("risk_cases").update(update_row).eq("case_id", case_id).execute()
+
+    action_run_id = f"RUN-{str(uuid.uuid4())[:8].upper()}"
+    proposal_id = f"PROP-{str(uuid.uuid4())[:8].upper()}"
+    scores = row.get("scores") or {}
+    supabase.table("action_runs").insert({
+        "action_run_id": action_run_id,
+        "case_id": case_id,
+        "status": "drafted",
+    }).execute()
+    supabase.table("change_proposals").insert({
+        "proposal_id": proposal_id,
+        "action_run_id": action_run_id,
+        "system": "Omni",
+        "entity_type": "Procurement",
+        "entity_id": new_plan.get("plan_id", "PLAN_B") if isinstance(new_plan, dict) else "PLAN_B",
+        "diff": new_plan,
+        "risk": {"confidence": scores.get("confidence", 80), "financial_impact": new_plan.get("expected_cost_usd") if isinstance(new_plan, dict) else None},
+        "status": "pending",
+    }).execute()
+
+    # Audit log for activity
+    supabase.table("audit_log").insert({
+        "action_run_id": action_run_id,
+        "case_id": case_id,
+        "actor": actor,
+        "event_type": "plan_rerun",
+        "payload": {"rejection_reason": rejection_reason, "feedback_text": feedback_text, "iteration": iteration_count + 1},
+    }).execute()
+
+    return {"status": "completed", "case_id": case_id, "iteration_count": iteration_count + 1}
+
+
+async def abandon_scenario(case_id: str, actor: str = "Administrator", reason: str = "") -> Dict[str, Any]:
+    """Set risk case status to abandoned, mark pending proposals rejected, and write audit log."""
+    res = supabase.table("risk_cases").select("case_id").eq("case_id", case_id).execute()
+    if not res.data:
+        raise ValueError(f"Risk case not found: {case_id}")
+    supabase.table("risk_cases").update({"status": "abandoned", "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}).eq("case_id", case_id).execute()
+    runs_res = supabase.table("action_runs").select("action_run_id").eq("case_id", case_id).execute()
+    run_ids = [r["action_run_id"] for r in (runs_res.data or [])]
+    if run_ids:
+        supabase.table("change_proposals").update({"status": "rejected", "approved_by": actor}).in_("action_run_id", run_ids).eq("status", "pending").execute()
+    supabase.table("audit_log").insert({
+        "case_id": case_id,
+        "actor": actor,
+        "event_type": "scenario_abandoned",
+        "payload": {"reason": reason or "User abandoned scenario"},
+    }).execute()
+    return {"status": "abandoned", "case_id": case_id}
 
 
 async def poll_for_approval(proposal_id: str, timeout_hours: int = 2) -> Dict[str, Any]:
