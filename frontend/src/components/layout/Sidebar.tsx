@@ -55,7 +55,7 @@ export default function Sidebar() {
                 <img
                     src="/omni_logo_inv.png"
                     alt="Omni"
-                    className="h-19 w-auto"
+                    className="h-13 w-auto"
                 />
             </div>
 
