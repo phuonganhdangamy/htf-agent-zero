@@ -51,9 +51,12 @@ export default function Sidebar() {
 
     return (
         <div className="w-64 bg-slate-900 text-slate-300 flex flex-col h-screen fixed left-0 top-0 border-r border-slate-800">
-            <div className="p-6 font-semibold text-white tracking-wider text-xl flex items-center gap-2">
-                <Bot className="text-blue-500" />
-                OMNI
+            <div className="p-6 flex items-center">
+                <img
+                    src="/omni_logo_inv.png"
+                    alt="Omni"
+                    className="h-19 w-auto"
+                />
             </div>
 
             <div className="flex flex-col flex-1 pb-4 overflow-y-auto">
