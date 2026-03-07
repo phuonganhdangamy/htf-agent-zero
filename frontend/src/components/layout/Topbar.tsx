@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Bell, Search, Sun, AlertTriangle, Info, CheckCircle2, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { format } from 'date-fns';
@@ -22,6 +23,7 @@ const severityIcon = (s: string) => {
 };
 
 export default function Topbar() {
+    const navigate = useNavigate();
     const [alerts, setAlerts] = useState<Alert[]>([]);
     const [showDropdown, setShowDropdown] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -73,6 +75,15 @@ export default function Topbar() {
             await axios.patch(`${API_BASE}/api/monitoring/alerts/${id}/read`);
             setAlerts(prev => prev.map(a => a.id === id ? { ...a, read: true } : a));
         } catch { /* ignore */ }
+    };
+
+    /** Navigate to the source of the alert (e.g. risk case) and close dropdown. */
+    const handleAlertClick = (alert: Alert) => {
+        if (!alert.read) markRead(alert.id);
+        setShowDropdown(false);
+        if (alert.case_id) {
+            navigate(`/cases/${alert.case_id}`);
+        }
     };
 
     return (
@@ -135,8 +146,11 @@ export default function Topbar() {
                                         alerts.map(alert => (
                                             <div
                                                 key={alert.id}
+                                                role="button"
+                                                tabIndex={0}
                                                 className={`px-4 py-3 border-b border-slate-50 hover:bg-slate-50 cursor-pointer transition-colors ${!alert.read ? 'bg-blue-50/30' : ''}`}
-                                                onClick={() => !alert.read && markRead(alert.id)}
+                                                onClick={() => handleAlertClick(alert)}
+                                                onKeyDown={(e) => e.key === 'Enter' && handleAlertClick(alert)}
                                             >
                                                 <div className="flex gap-2 items-start">
                                                     {severityIcon(alert.severity)}

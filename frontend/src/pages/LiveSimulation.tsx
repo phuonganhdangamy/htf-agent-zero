@@ -19,7 +19,7 @@ import axios from 'axios';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 const DEFAULT_COMPANY_ID = 'ORG_DEMO';
-const DEFAULT_SCENARIO = `Large order incoming: 50,000 units PROD_001 for Q3 delivery. Single-source dependency on SUPP_044 (Taiwan). Current inventory at 4.2 days cover. Assess risk and recommend procurement strategy.`;
+const DEFAULT_SCENARIO = `Large order incoming: 50,000 units Premium Smartphone Model X for Q3 delivery. Single-source dependency on Taiwan Semiconductor Corp (Kaohsiung) for 7nm Silicon Wafer. Current 7nm Wafer inventory at 4.2 days cover; Organic Substrate and EUV Photoresist also in play. Assess risk and recommend procurement strategy.`;
 
 const ORDER_VOLUME_OPTIONS = [
     { value: 'routine', label: 'Routine reorder (< 10,000 units)' },
@@ -53,7 +53,7 @@ const ACTION_TYPES = ['EXPEDITE_AIR_FREIGHT', 'ACTIVATE_BACKUP_SUPPLIER', 'REROU
 
 const DIRECTIVE_LABELS: Record<string, { label: string; desc?: string; icon?: string }> = {
     monitor_global_signals: { label: 'MONITOR_GLOBAL_SIGNALS', desc: 'Pull live signals from perception layer', icon: '⚡' },
-    protect_prod_001_margin: { label: 'PROTECT_PROD_001_MARGIN', desc: 'Prioritize margin protection in plans', icon: '🛡' },
+    protect_prod_001_margin: { label: 'PROTECT_PRODUCT_MARGIN', desc: 'Prioritize margin for Premium Smartphone Model X', icon: '🛡' },
     minimize_lead_time_variance: { label: 'MINIMIZE_LEAD_TIME_VARIANCE', icon: '⏱' },
     enforce_cost_cap: { label: 'ENFORCE_COST_CAP', desc: 'Hard stop at budget flexibility setting', icon: '💰' },
     auto_escalate_critical: { label: 'AUTO_ESCALATE_CRITICAL', desc: 'Bypass approval for critical cases', icon: '🔔' },
@@ -554,7 +554,7 @@ export default function LiveSimulation() {
                                 value={scenarioText}
                                 onChange={(e) => setScenarioText(e.target.value)}
                                 className="w-full border border-slate-200 rounded-lg p-3 text-sm min-h-[80px]"
-                                placeholder="e.g. We are planning a large contract with Toyota for 50,000 units of PROD_001 in Q3. Assess supply chain readiness and risks."
+                                placeholder="e.g. We are planning a large contract with Toyota for 50,000 units of Premium Smartphone Model X in Q3. Assess supply chain readiness and risks."
                             />
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                 <div>
@@ -735,7 +735,7 @@ export default function LiveSimulation() {
                                         <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Preferred supplier</label>
                                         <select value={rejectionPreferredSupplier} onChange={(e) => setRejectionPreferredSupplier(e.target.value)} className="w-full border border-slate-200 rounded-lg p-2 text-sm font-mono">
                                             <option value="">— Select —</option>
-                                            {suppliers.map((s: any) => <option key={s.supplier_id} value={s.supplier_id}>{s.supplier_id} / {s.country}</option>)}
+                                            {suppliers.map((s: any) => <option key={s.supplier_id} value={s.supplier_id}>{(s.supplier_name || s.supplier_id)} / {s.country}</option>)}
                                         </select>
                                     </div>
                                 )}
@@ -754,7 +754,7 @@ export default function LiveSimulation() {
                                 )}
                                 <div>
                                     <label className="block text-xs font-semibold text-slate-500 uppercase mb-1">Additional instructions for the agent</label>
-                                    <textarea value={rejectionFeedbackText} onChange={(e) => setRejectionFeedbackText(e.target.value)} placeholder="e.g. Keep cost under $20,000. Prefer SUPP_021." className="w-full border border-slate-200 rounded-lg p-3 text-sm min-h-[60px]" />
+                                    <textarea value={rejectionFeedbackText} onChange={(e) => setRejectionFeedbackText(e.target.value)} placeholder="e.g. Keep cost under $20,000. Prefer Japan Electronics." className="w-full border border-slate-200 rounded-lg p-3 text-sm min-h-[60px]" />
                                 </div>
                                 <div className="flex gap-3 pt-2">
                                     <button onClick={handleRerunWithFeedback} disabled={rerunning} className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">Rerun with feedback</button>

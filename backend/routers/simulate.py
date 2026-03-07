@@ -31,27 +31,27 @@ def get_supply_chain_snapshot():
     suppliers_res = supabase.table("suppliers").select("*").execute()
     facilities_res = supabase.table("facilities").select("*").execute()
     
-    # If DB is empty, provide the default mock snapshot
+    # If DB is empty, provide the default mock snapshot (meaningful names for display)
     suppliers = suppliers_res.data if suppliers_res.data else [
-        {"id": "SUPP_044", "location": "Kaohsiung, Taiwan", "material": "microchips", "criticality_score": 92, "single_source": True, "lead_time_days": 30},
-        {"id": "SUPP_012", "location": "South Korea", "material": "microchips", "backup_supplier": True, "lead_time_days": 60},
-        {"id": "SUPP_021", "location": "Japan", "material": "microchips", "backup_supplier": True, "lead_time_days": 45},
+        {"supplier_id": "SUPP_044", "supplier_name": "Taiwan Semiconductor Corp", "country": "Taiwan", "region": "Kaohsiung", "criticality_score": 92, "single_source": True, "lead_time_days": 30},
+        {"supplier_id": "SUPP_012", "supplier_name": "Korea Tech Solutions", "country": "South Korea", "region": "Seoul", "backup_supplier": True, "lead_time_days": 60},
+        {"supplier_id": "SUPP_021", "supplier_name": "Japan Electronics", "country": "Japan", "region": "Tokyo", "backup_supplier": True, "lead_time_days": 45},
     ]
     
     facilities = facilities_res.data if facilities_res.data else [
-        {"id": "FAC_DE_01", "location": "Germany", "type": "assembly plant"},
-        {"id": "DC_DE_01", "location": "Germany", "type": "warehouse", "inventory_days_remaining": 4.2, "safety_stock_days": 10},
+        {"facility_id": "FAC_DE_01", "country": "Germany", "facility_type": "assembly"},
+        {"facility_id": "DC_DE_01", "country": "Germany", "facility_type": "warehouse", "inventory_days_remaining": 4.2, "safety_stock_days": 10},
     ]
     
     return {
         "suppliers": suppliers,
         "facilities": facilities,
-        "product": {"id": "PROD_001", "margin": "38%", "priority": "high"},
+        "product": {"product_id": "PROD_001", "product_name": "Premium Smartphone Model X", "margin_percent": 38, "priority_level": "high"},
         "transport_route": "Taiwan → Germany (sea)",
         "transit_time_days": 14,
         "open_purchase_orders": [
-            {"id": "PO_8821", "eta": "2026-03-20"},
-            {"id": "PO_8822", "eta": "2026-04-05"},
+            {"po_id": "PO_8821", "eta": "2026-03-20", "material_name": "7nm Silicon Wafer"},
+            {"po_id": "PO_8822", "eta": "2026-04-05", "material_name": "7nm Silicon Wafer"},
         ],
     }
 
