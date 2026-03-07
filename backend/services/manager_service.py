@@ -58,23 +58,42 @@ async def run_with_manager(
     update_session(session_id, pipeline_runs=1, agent_invoked="OmniManager")
     
     # For v1, delegate to existing agent_runner logic
-    # In v2, this would invoke the ADK manager agent directly
+    # Manager interprets the user's scenario to drive perception (what to fetch), then runs risk assessment.
     try:
         from backend.services.agent_runner import run_risk_assessment
-        
+        from backend.services.scenario_interpreter import interpret_scenario_for_perception
+        from backend.services.perception_service import run_perception_scan
+
         scenario_text = payload.get("scenario_text") or payload.get("trigger", "")
         severity = payload.get("severity", 50)
         urgency = payload.get("urgency", 50)
+
+        # Interpret scenario so perception fetches data for the right regions (e.g. Mexico if user said Mexico)
+        interpreted = interpret_scenario_for_perception(scenario_text) if scenario_text else {}
+        focus_countries = interpreted.get("focus_countries") or []
+        focus_regions = interpreted.get("focus_regions") or []
+
+        # Run perception with manager-derived focus so we have relevant signals (not only hardcoded supplier countries)
+        if trigger_type == "user_scenario" and scenario_text:
+            try:
+                await run_perception_scan(
+                    company_id=company_id,
+                    focus_countries=focus_countries if focus_countries else None,
+                    focus_regions=focus_regions if focus_regions else None,
+                )
+            except Exception as pe:
+                print(f"[manager] perception scan (scenario-driven) failed: {pe}")
+
         run_context = {
             "focus_suppliers": payload.get("focus_suppliers"),
             "focus_materials": payload.get("focus_materials"),
-            "flagged_regions": payload.get("flagged_regions"),
+            "flagged_regions": payload.get("flagged_regions") or focus_countries or None,
             "directives": payload.get("directives"),
             "budget_flexibility": payload.get("budget_flexibility"),
             "risk_tolerance": payload.get("risk_tolerance"),
             "timeline": payload.get("timeline"),
         }
-        
+
         result = await run_risk_assessment(
             company_id=company_id,
             scenario_text=scenario_text,

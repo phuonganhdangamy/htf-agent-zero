@@ -6,13 +6,13 @@ import uuid
 from typing import Dict, Any, Optional, List
 from backend.services.supabase_client import supabase
 
-# Action layer step template (step, name, status, timestamp, artifact_id, description)
+# Action layer step template: descriptions use meaningful names (supplier/material) for users; codes stay in data.
 DEFAULT_ACTION_RUN_STEPS = [
-    {"step": 1, "name": "ExposureAgent", "status": "DONE", "description": "validated — SUPP_044 exposed, 4.2d cover"},
+    {"step": 1, "name": "ExposureAgent", "status": "DONE", "description": "validated — Taiwan Semiconductor Corp exposed, 7nm Wafer 4.2d cover"},
     {"step": 2, "name": "DraftingAgent", "status": "DONE", "description": "supplier outreach email drafted"},
     {"step": 3, "name": "ApprovalAgent", "status": "PENDING", "description": "awaiting human sign-off on email"},
-    {"step": 4, "name": "CommitAgent", "status": "LOCKED", "description": "send email to SUPP_044"},
-    {"step": 5, "name": "ChangeProposalAgent", "status": "LOCKED", "description": "propose PO_8821 ETA change ocean→air"},
+    {"step": 4, "name": "CommitAgent", "status": "LOCKED", "description": "send email to Taiwan Semiconductor Corp"},
+    {"step": 5, "name": "ChangeProposalAgent", "status": "LOCKED", "description": "propose PO 8821 (7nm Wafer) ETA change ocean→air"},
     {"step": 6, "name": "ApprovalAgent", "status": "LOCKED", "description": "awaiting approval for ERP write"},
     {"step": 7, "name": "CommitAgent", "status": "LOCKED", "description": "write to ERP"},
     {"step": 8, "name": "VerificationAgent", "status": "LOCKED", "description": "confirm ERP updated"},
@@ -38,7 +38,7 @@ def _build_live_context(company_id: str, focus_suppliers: Optional[List[str]] = 
     """Pull REAL data from Supabase for LLM context. Optionally filter by focus_suppliers and focus_materials."""
     live = {}
     try:
-        supp = supabase.table("suppliers").select("supplier_id, supplier_name, country, criticality_score, single_source, lead_time_days").execute()
+        supp = supabase.table("suppliers").select("supplier_id, supplier_name, country, criticality_score, single_source, lead_time_days, materials_supplied").execute()
         all_suppliers = supp.data or []
         if focus_suppliers:
             ids = set(focus_suppliers)
@@ -66,6 +66,12 @@ def _build_live_context(company_id: str, focus_suppliers: Optional[List[str]] = 
             all_po = [p for p in all_po if p.get("material_id") in mat_ids]
         live["purchase_orders"] = all_po
 
+        # Include materials and products so the model can use human-readable names in output
+        mat = supabase.table("materials").select("material_id, material_name, category").execute()
+        live["materials"] = {m["material_id"]: m for m in (mat.data or [])}
+        prod = supabase.table("products").select("product_id, product_name").execute()
+        live["products"] = {p["product_id"]: p for p in (prod.data or [])}
+
         prefs = supabase.table("memory_preferences").select("*").eq("org_id", company_id).limit(1).execute()
         live["memory_preferences"] = prefs.data[0] if prefs.data else {}
 
@@ -77,14 +83,20 @@ def _build_live_context(company_id: str, focus_suppliers: Optional[List[str]] = 
 
 
 RISK_SYSTEM_PROMPT = """You are Omni's reasoning engine for supply chain risk assessment.
-You will be given a scenario and the company's live operational data.
-Produce a RiskCase JSON object. Be specific — use real supplier IDs, material IDs, PO IDs and numbers from the data provided.
-Do not invent data that is not in the context.
+You will be given a scenario (the user's exact situation) and the company's live operational data.
+
+CRITICAL: The user's scenario is the ONLY subject of this assessment.
+- Headline, hypotheses chain, recommended_plan, and reasoning_summary MUST directly address the scenario the user described (e.g. "new contract in Mexico", "Taiwan disruption", "port strike").
+- Do NOT substitute a different scenario (e.g. do not default to Taiwan Semiconductor Corp disruption if the user asked about Mexico or something else).
+- Use the operational data (suppliers, inventory, POs, materials, products) to ground your response WHERE RELEVANT. If the scenario mentions a region or supplier not in the data, say so and reason with supply chain logic.
+- When the user says "can use any suppliers", "open to any supplier", or similar, prefer dual/multi-sourcing and actively consider ALL suppliers who actually supply that material (check suppliers.materials_supplied and purchase_orders). Do not default to single-source if the user signaled flexibility.
+- HARD CONSTRAINT: Only recommend a supplier for a material if that supplier supplies that material in the operational data (materials_supplied or existing purchase_orders). Do not suggest a supplier for a material they do not supply.
+- USER-FACING TEXT: In headline, reasoning_summary bullets, recommended_plan name and actions, and execution_steps use human-readable names: supplier_name (e.g. Taiwan Semiconductor Corp), material_name (e.g. 7nm Silicon Wafer), product_name (e.g. Premium Smartphone Model X). Keep internal codes (supplier_id, material_id, po_id) only in the exposure object (exposure.suppliers, exposure.skus, exposure.pos_at_risk).
 
 Output ONLY valid JSON matching this exact schema:
 {
   "case_id": "RC_<timestamp>",
-  "headline": "<specific 1-sentence summary referencing real supplier/material>",
+  "headline": "<1-sentence summary using supplier_name and material_name, e.g. Taiwan Semiconductor Corp 7nm Wafer at 4.2d cover>",
   "risk_category": "conflict|disaster|logistics|trade|cost|macro|cyber",
   "scores": {
     "likelihood": <0-100, influenced by severity slider>,
@@ -114,9 +126,9 @@ Output ONLY valid JSON matching this exact schema:
     "service_level": <0-1>
   },
   "reasoning_summary": [
-    "<bullet 1: why this plan was chosen, e.g. SUPP_044 is single-source with X days cover>",
-    "<bullet 2: e.g. PO_8821 ETA is ... >",
-    "<3-5 bullets total explaining exactly why this plan over alternatives>"
+    "<bullet 1: use supplier/material names, e.g. Taiwan Semiconductor Corp is single-source with X days 7nm Wafer cover>",
+    "<bullet 2: e.g. PO 8821 (7nm Wafer) ETA ... >",
+    "<3-5 bullets total; use names not codes in narrative>"
   ],
   "alternative_plans": [
     {
@@ -213,13 +225,17 @@ async def run_risk_assessment(company_id: str, scenario_text: str, severity: int
         constraints.append("Timeline is tight (30 days). Prefer mitigations that can execute within 30 days.")
     constraints_text = "\n".join(constraints) if constraints else ""
 
-    user_content = f"""Scenario: {scenario_text}
+    user_content = f"""The user's operational scenario (you MUST base headline, hypotheses, and recommended plan on this and only this):
+---
+{scenario_text}
+---
+
 Severity: {severity}/100
 Urgency: {urgency}/100
 {directives_block}
 {constraints_text}
 
-Live operational context (already filtered by focus suppliers/materials if provided):
+Live operational context (use to ground your response where relevant to the scenario above; do not substitute a different scenario):
 {json.dumps(live_context, indent=2, default=str)}"""
 
     from google.genai import types

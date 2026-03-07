@@ -7,7 +7,7 @@ import json
 import os
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from backend.services.supabase_client import supabase
 
@@ -47,24 +47,38 @@ def _save_events_direct(events: List[Dict[str, Any]]) -> int:
     return saved
 
 
-async def run_perception_scan(company_id: str = "ORG_DEMO") -> Dict[str, Any]:
+async def run_perception_scan(
+    company_id: str = "ORG_DEMO",
+    focus_countries: Optional[List[str]] = None,
+    focus_regions: Optional[List[str]] = None,
+) -> Dict[str, Any]:
     """
-    Run a Gemini-powered perception scan for the company's supplier regions.
-    Saves new signal events to DB.
-    Returns scan summary + list of saved events for escalation.
+    Run a Gemini-powered perception scan. When the manager interprets the user's
+    scenario (e.g. "new contract in Mexico"), it can pass focus_countries so we
+    fetch signals for those regions instead of only DB supplier countries.
     """
-    # 1. Fetch supplier countries
+    # 1. Build country list: manager-provided focus first, then supplier countries
     supp_res = supabase.table("suppliers").select("supplier_name, country").execute()
     suppliers = supp_res.data or []
-    countries = list({s["country"] for s in suppliers if s.get("country")})
-    if not countries:
-        countries = ["Taiwan", "Japan", "Germany", "United States", "China"]
+    supplier_countries = list({s["country"] for s in suppliers if s.get("country")})
+    fallback = ["Taiwan", "Japan", "Germany", "United States", "China"]
+    if focus_countries:
+        # User scenario drove focus (e.g. Mexico); merge with supplier countries for breadth
+        countries = list(dict.fromkeys([c.strip() for c in focus_countries if c and c.strip()]))
+        for c in supplier_countries:
+            if c and c not in countries:
+                countries.append(c)
+        if not countries:
+            countries = fallback
+    else:
+        countries = supplier_countries or fallback
 
-    # 2. Build prompt
+    # 2. Build prompt (optionally mention focus regions for nuance)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    region_note = f" Pay special attention to: {', '.join(focus_regions)}." if focus_regions else ""
     prompt = f"""You are a supply chain disruption intelligence analyst. Today is {today}.
 
-The company monitors suppliers in these countries: {', '.join(countries)}.
+The company is interested in these countries/regions: {', '.join(countries)}.{region_note}
 
 Generate 4 to 6 realistic, current supply chain disruption signal events affecting those regions.
 Each event should represent a different risk type (Conflict, Weather, Economic, Trade).

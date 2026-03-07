@@ -13,39 +13,21 @@ export const COMPANY_PROFILE = {
 
 export const SUPPLY_CHAIN_SNAPSHOT = {
     suppliers: [
-        {
-            id: "SUPP_044",
-            location: "Kaohsiung, Taiwan",
-            material: "microchips",
-            criticality_score: 92,
-            single_source: true,
-            lead_time_days: 30,
-        },
-        {
-            id: "SUPP_012",
-            location: "South Korea",
-            material: "microchips",
-            backup_supplier: true,
-            lead_time_days: 60,
-        },
-        {
-            id: "SUPP_021",
-            location: "Japan",
-            material: "microchips",
-            backup_supplier: true,
-            lead_time_days: 45,
-        },
+        { id: "SUPP_044", supplier_name: "Taiwan Semiconductor Corp", location: "Kaohsiung, Taiwan", materials: "7nm Silicon Wafer, Mold Compound", criticality_score: 92, single_source: true, lead_time_days: 30 },
+        { id: "SUPP_012", supplier_name: "Korea Tech Solutions", location: "South Korea", materials: "7nm Silicon Wafer, Wire Bond Gold", backup_supplier: true, lead_time_days: 60 },
+        { id: "SUPP_021", supplier_name: "Japan Electronics", location: "Japan", materials: "Organic Substrate, Wire Bond Gold, EUV Photoresist", backup_supplier: true, lead_time_days: 45 },
     ],
     facilities: [
         { id: "FAC_DE_01", location: "Germany", type: "assembly plant" },
         { id: "DC_DE_01", location: "Germany", type: "warehouse", inventory_days_remaining: 4.2, safety_stock_days: 10 },
     ],
-    product: { id: "PROD_001", margin: "38%", priority: "high" },
+    product: { id: "PROD_001", product_name: "Premium Smartphone Model X", margin: "38%", priority: "high" },
+    materials: ["7nm Silicon Wafer", "Organic Substrate", "Wire Bond Gold", "Mold Compound", "EUV Photoresist"],
     transport_route: "Taiwan → Germany (sea)",
     transit_time_days: 14,
     open_purchase_orders: [
-        { id: "PO_8821", eta: "2026-03-20" },
-        { id: "PO_8822", eta: "2026-04-05" },
+        { id: "PO_8821", eta: "2026-03-20", material: "7nm Silicon Wafer" },
+        { id: "PO_8822", eta: "2026-04-05", material: "7nm Silicon Wafer" },
     ],
 };
 
