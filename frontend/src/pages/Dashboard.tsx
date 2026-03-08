@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ShieldAlert,
   CircleDollarSign,
@@ -9,6 +10,7 @@ import {
   RefreshCw,
   Scan,
   Loader2,
+  ChevronRight,
 } from 'lucide-react';
 import axios from 'axios';
 import { supabase } from '../lib/supabase';
@@ -31,6 +33,7 @@ interface KPIData {
 }
 
 export default function DashboardOverview() {
+  const navigate = useNavigate();
   const [kpis, setKpis] = useState<KPIData>({
     activeRiskCases: null,
     revenueAtRisk: null,
@@ -57,6 +60,8 @@ export default function DashboardOverview() {
       ]);
 
       const openCases = casesRes.data || [];
+      // Sum of recommended_plan.expected_loss_prevented_usd across open risk cases.
+      // This is agent-estimated "value of mitigation" from the Scenario Simulator LLM, not real revenue/financials.
       const revenueAtRisk = openCases.reduce((sum, c) => sum + (Number(c.expected_loss_prevented) || 0), 0);
 
       const inventoryRows = inventoryRes.data || [];
@@ -121,20 +126,28 @@ export default function DashboardOverview() {
     return v.toLocaleString();
   };
 
-  const kpiCards = [
+  const kpiCards: Array<{
+    label: string;
+    value: string;
+    icon: React.ComponentType<{ size?: number; className?: string }>;
+    urgent: boolean;
+    sub: string;
+    path?: string;
+  }> = [
     {
       label: 'Active Risk Cases',
       value: formatValue(kpis.activeRiskCases),
       icon: ShieldAlert,
       urgent: (kpis.activeRiskCases ?? 0) > 0,
       sub: 'open cases',
+      path: '/cases',
     },
     {
-      label: 'Revenue at Risk',
+      label: 'Expected loss prevented',
       value: formatValue(kpis.revenueAtRisk, 'usd'),
       icon: CircleDollarSign,
       urgent: (kpis.revenueAtRisk ?? 0) > 100_000,
-      sub: 'loss prevented value',
+      sub: 'agent-estimated, open cases',
     },
     {
       label: 'Min Inventory Cover',
@@ -156,6 +169,7 @@ export default function DashboardOverview() {
       icon: Activity,
       urgent: (kpis.recentSignals ?? 0) > 5,
       sub: 'last 24 hours',
+      path: '/events',
     },
     {
       label: 'Pending Approvals',
@@ -163,6 +177,7 @@ export default function DashboardOverview() {
       icon: CheckSquare,
       urgent: (kpis.pendingApprovals ?? 0) > 0,
       sub: 'awaiting action',
+      path: '/actions',
     },
   ];
 
@@ -214,37 +229,47 @@ export default function DashboardOverview() {
 
       {/* KPI Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        {kpiCards.map((kpi, idx) => (
-          <div
-            key={idx}
-            className={cn(
-              'glass-panel p-4 relative overflow-hidden group',
-              kpi.urgent && 'border-rose-200 bg-rose-50/30'
-            )}
-          >
-            <div className="flex justify-between items-start mb-3">
-              <div className={cn(
-                'p-2 rounded-lg',
-                kpi.urgent ? 'bg-rose-100 text-rose-600' : 'bg-blue-50 text-blue-600'
-              )}>
-                <kpi.icon size={18} />
+        {kpiCards.map((kpi, idx) => {
+          const isClickable = !!kpi.path;
+          const Wrapper = isClickable ? 'button' : 'div';
+          return (
+            <Wrapper
+              key={idx}
+              type={isClickable ? 'button' : undefined}
+              onClick={isClickable ? () => navigate(kpi.path!) : undefined}
+              className={cn(
+                'glass-panel p-4 relative overflow-hidden group text-left w-full',
+                kpi.urgent && 'border-rose-200 bg-rose-50/30',
+                isClickable && 'cursor-pointer hover:ring-2 hover:ring-slate-300 transition-shadow'
+              )}
+            >
+              <div className="flex justify-between items-start mb-3">
+                <div className={cn(
+                  'p-2 rounded-lg',
+                  kpi.urgent ? 'bg-rose-100 text-rose-600' : 'bg-blue-50 text-blue-600'
+                )}>
+                  <kpi.icon size={18} />
+                </div>
+                {isClickable && (
+                  <ChevronRight size={16} className="text-slate-400 group-hover:text-slate-600 shrink-0 mt-0.5" />
+                )}
               </div>
-            </div>
-            <div>
-              <h3 className={cn(
-                'text-2xl font-bold',
-                loading ? 'text-slate-300 animate-pulse' : 'text-slate-900'
-              )}>
-                {kpi.value}
-              </h3>
-              <p className="text-xs font-semibold text-slate-700 mt-1">{kpi.label}</p>
-              <p className="text-xs text-slate-400">{kpi.sub}</p>
-            </div>
-            <div className="absolute -right-3 -bottom-3 opacity-5 pointer-events-none group-hover:scale-110 transition-transform duration-500">
-              <kpi.icon size={80} />
-            </div>
-          </div>
-        ))}
+              <div>
+                <h3 className={cn(
+                  'text-2xl font-bold',
+                  loading ? 'text-slate-300 animate-pulse' : 'text-slate-900'
+                )}>
+                  {kpi.value}
+                </h3>
+                <p className="text-xs font-semibold text-slate-700 mt-1">{kpi.label}</p>
+                <p className="text-xs text-slate-400">{kpi.sub}</p>
+              </div>
+              <div className="absolute -right-3 -bottom-3 opacity-5 pointer-events-none group-hover:scale-110 transition-transform duration-500">
+                <kpi.icon size={80} />
+              </div>
+            </Wrapper>
+          );
+        })}
       </div>
 
       {/* Map Panel */}

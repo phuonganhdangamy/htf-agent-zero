@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import axios from 'axios';
 import type { ChangeProposal } from '../types';
+import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle, XCircle, Clock, FileText } from 'lucide-react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -132,9 +133,11 @@ function renderProposalDiff(diff: any): React.ReactNode {
 
 export default function CaseDetail() {
     const { id } = useParams();
+    const navigate = useNavigate();
     const [riskCase, setRiskCase] = useState<any>(null);
     const [proposals, setProposals] = useState<ChangeProposal[]>([]);
     const [loading, setLoading] = useState(true);
+    const [closing, setClosing] = useState(false);
 
     useEffect(() => {
         if (id) {
@@ -205,6 +208,22 @@ export default function CaseDetail() {
         }
     };
 
+    const handleCloseCase = async () => {
+        if (!riskCase?.case_id || closing) return;
+        setClosing(true);
+        try {
+            await axios.post(`${API_BASE}/api/agent/abandon`, {
+                case_id: riskCase.case_id,
+                actor: 'Omni Admin',
+                reason: 'Closed from Case Detail',
+            });
+            navigate('/cases');
+        } catch (err) {
+            console.error('Failed to close case:', err);
+            setClosing(false);
+        }
+    };
+
     if (loading) return <div className="p-8 text-center">Loading case details...</div>;
     if (!riskCase) return <div className="p-8 text-center text-rose-500">Case not found.</div>;
 
@@ -233,6 +252,17 @@ export default function CaseDetail() {
                         <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-semibold capitalize">
                             {riskCase.status}
                         </span>
+                        {riskCase.status === 'open' && (
+                            <button
+                                type="button"
+                                onClick={handleCloseCase}
+                                disabled={closing}
+                                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
+                                title="Close this case (sets status to abandoned)"
+                            >
+                                <XCircle size={16} /> {closing ? 'Closing…' : 'Close case'}
+                            </button>
+                        )}
                     </div>
                 </div>
 

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, Fragment } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import type { RiskCase } from '../types';
-import { Activity, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import { Activity, ChevronDown, ChevronRight, ExternalLink, XCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import axios from 'axios';
@@ -22,6 +22,7 @@ export default function RiskCases() {
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [auditByCase, setAuditByCase] = useState<Record<string, any[]>>({});
+  const [closingCaseId, setClosingCaseId] = useState<string | null>(null);
 
   const fetchCases = useCallback(async () => {
     setLoading(true);
@@ -89,6 +90,24 @@ export default function RiskCases() {
     n >= 70 ? 'bg-rose-100 text-rose-800' : n >= 40 ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700';
 
   /** Normalize hypotheses for display: support array of { title, description } or legacy { chain: string[] }. */
+  const handleCloseCase = async (caseId: string) => {
+    if (closingCaseId) return;
+    setClosingCaseId(caseId);
+    try {
+      await axios.post(`${API_BASE}/api/agent/abandon`, {
+        case_id: caseId,
+        actor: 'Omni Admin',
+        reason: 'Closed from Risk Cases',
+      });
+      setExpandedId((id) => (id === caseId ? null : id));
+      fetchCases();
+    } catch (err) {
+      console.error('Failed to close case:', err);
+    } finally {
+      setClosingCaseId(null);
+    }
+  };
+
   const getHypothesesList = (c: RiskCaseRow): Array<{ title: string; description: string }> => {
     const h = c.hypotheses;
     if (Array.isArray(h)) return h.map((x: any) => ({ title: x?.title ?? '', description: x?.description ?? '' }));
@@ -194,7 +213,8 @@ export default function RiskCases() {
                         <span className={cn(
                           "px-2 py-0.5 rounded text-xs font-bold uppercase",
                           c.status === 'open' ? "bg-rose-100 text-rose-700" :
-                            c.status === 'monitoring' ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"
+                            c.status === 'monitoring' ? "bg-amber-100 text-amber-700" :
+                            c.status === 'closed' ? "bg-slate-100 text-slate-600" : "bg-slate-100 text-slate-600"
                         )}>
                           {c.status}
                         </span>
@@ -320,6 +340,20 @@ export default function RiskCases() {
                                 </ul>
                               )}
                             </div>
+                            {c.status === 'open' && (
+                              <div className="md:col-span-2 pt-2 border-t border-slate-200">
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); handleCloseCase(caseId); }}
+                                  disabled={closingCaseId === caseId}
+                                  className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
+                                  title="Close this case (sets status to abandoned; it will no longer count as open)"
+                                >
+                                  <XCircle size={16} /> {closingCaseId === caseId ? 'Closing…' : 'Close case'}
+                                </button>
+                                <p className="text-xs text-slate-500 mt-1">Closing sets status to abandoned. The case will no longer appear in dashboard open-case counts.</p>
+                              </div>
+                            )}
                           </div>
                         </td>
                       </tr>
