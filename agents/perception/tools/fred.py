@@ -51,11 +51,14 @@ def fetch_macro_signals(indicators: list[str]) -> str:
             observations = data.get("observations", [])
             if observations:
                 latest = observations[0]
-                events.append({
+                ev = {
                     "title": f"Latest FRED {series_id} Data: {latest.get('value')}",
                     "summary": f"Macroeconomic indicator {series_id} is at {latest.get('value')} on {latest.get('date')}",
                     "source": "FRED"
-                })
+                }
+                if latest.get("date"):
+                    ev["date"] = latest.get("date")
+                events.append(ev)
         return json.dumps(events)
     except Exception as e:
         print(f"Warning: FRED API error: {str(e)}")

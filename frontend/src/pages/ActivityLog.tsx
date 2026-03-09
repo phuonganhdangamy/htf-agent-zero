@@ -13,10 +13,30 @@ interface AuditEntry {
   payload: Record<string, unknown> | null;
 }
 
-function oneLineSummary(payload: Record<string, unknown> | null): string {
-  if (!payload) return '—';
-  const str = JSON.stringify(payload);
-  return str.length > 80 ? str.slice(0, 77) + '...' : str;
+function formatPayloadValue(val: unknown): string {
+  if (val === null || val === undefined) return '—';
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+  if (typeof val === 'string') return val;
+  if (typeof val === 'number') return String(val);
+  if (Array.isArray(val)) return val.length ? val.map((v) => formatPayloadValue(v)).join(', ') : '—';
+  if (typeof val === 'object') return JSON.stringify(val).length > 60 ? JSON.stringify(val).slice(0, 57) + '…' : JSON.stringify(val);
+  return String(val);
+}
+
+function PayloadSummary({ payload }: { payload: Record<string, unknown> | null }) {
+  if (!payload || Object.keys(payload).length === 0) return <span className="text-slate-400">—</span>;
+  const entries = Object.entries(payload).filter(([, v]) => v !== undefined && v !== null);
+  if (entries.length === 0) return <span className="text-slate-400">—</span>;
+  return (
+    <div className="space-y-1">
+      {entries.map(([key, value]) => (
+        <div key={key} className="flex gap-2 text-xs">
+          <span className="text-slate-500 font-medium shrink-0">{key.replace(/_/g, ' ')}:</span>
+          <span className="text-slate-700 break-words">{formatPayloadValue(value)}</span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export default function ActivityLog() {
@@ -105,8 +125,8 @@ export default function ActivityLog() {
                     )}
                   </td>
                   <td className="px-6 py-4 text-slate-600 text-xs">{row.actor || '—'}</td>
-                  <td className="px-6 py-4 text-slate-600 text-xs wrap-break-word" title={JSON.stringify(row.payload)}>
-                    {oneLineSummary(row.payload)}
+                  <td className="px-6 py-4 text-slate-600 text-xs align-top">
+                    <PayloadSummary payload={row.payload} />
                   </td>
                 </tr>
               ))}

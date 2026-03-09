@@ -34,9 +34,19 @@ def _get_gemini_client():
     return _gemini_client
 
 
-def _build_live_context(company_id: str, focus_suppliers: Optional[List[str]] = None, focus_materials: Optional[List[str]] = None) -> Dict[str, Any]:
-    """Pull REAL data from Supabase for LLM context. Optionally filter by focus_suppliers and focus_materials."""
+def _build_live_context(
+    company_id: str,
+    focus_suppliers: Optional[List[str]] = None,
+    focus_materials: Optional[List[str]] = None,
+    signal_events_limit: Optional[int] = 100,
+) -> Dict[str, Any]:
+    """Pull REAL data from Supabase for LLM context. Optionally filter by focus_suppliers and focus_materials.
+    signal_events_limit: max number of signal_events to include (default 100). We do NOT filter by date because
+    created_at is insert time (not event time) and start_date is often null; the model is instructed to use
+    context_date_utc and event title/summary to treat only relevant-time events as current."""
     live = {}
+    context_date_utc = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    live["context_date_utc"] = context_date_utc
     try:
         supp = supabase.table("suppliers").select("supplier_id, supplier_name, country, criticality_score, single_source, lead_time_days, materials_supplied").execute()
         all_suppliers = supp.data or []
@@ -77,6 +87,14 @@ def _build_live_context(company_id: str, focus_suppliers: Optional[List[str]] = 
 
         pat = supabase.table("memory_patterns").select("*").limit(20).execute()
         live["memory_patterns"] = pat.data or []
+
+        # Include signal_events up to limit. We do NOT filter by created_at (insert time) or start_date (often null).
+        # The model is told to use context_date_utc and event title/summary to ignore clearly historical events.
+        if signal_events_limit is not None and signal_events_limit > 0:
+            events_res = supabase.table("signal_events").select(
+                "event_id, event_type, subtype, title, summary, country, start_date, created_at, confidence_score, risk_category"
+            ).order("created_at", desc=True).limit(signal_events_limit).execute()
+            live["signal_events"] = events_res.data or []
     except Exception as e:
         print(f"Error building live context: {e}")
     return live
@@ -225,17 +243,21 @@ async def run_risk_assessment(company_id: str, scenario_text: str, severity: int
         constraints.append("Timeline is tight (30 days). Prefer mitigations that can execute within 30 days.")
     constraints_text = "\n".join(constraints) if constraints else ""
 
+    context_date_note = live_context.get("context_date_utc")
+    context_date_line = f"\nContext reference date (this run is as of): {context_date_note}\n" if context_date_note else ""
+
     user_content = f"""The user's operational scenario (you MUST base headline, hypotheses, and recommended plan on this and only this):
 ---
 {scenario_text}
 ---
-
+{context_date_line}
 Severity: {severity}/100
 Urgency: {urgency}/100
 {directives_block}
 {constraints_text}
 
-Live operational context (use to ground your response where relevant to the scenario above; do not substitute a different scenario):
+Live operational context (use to ground your response where relevant to the scenario above; do not substitute a different scenario).
+IMPORTANT for signal_events: created_at is when the row was stored (not when the event happened); start_date is often null. Use context_date_utc as the reference \"current\" time for this run. From each event's title and summary, infer whether it is about the current period or historical (e.g. old news). Only treat events that are clearly about the current or relevant time window as current; ignore or downweight events that are clearly about the past (e.g. 2019 or other old dates mentioned in the content).
 {json.dumps(live_context, indent=2, default=str)}"""
 
     from google.genai import types
