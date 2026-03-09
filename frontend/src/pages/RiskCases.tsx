@@ -9,6 +9,13 @@ import axios from 'axios';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
+const STATUS_OPTIONS: { key: string; label: string }[] = [
+  { key: 'open', label: 'Open' },
+  { key: 'monitoring', label: 'Monitoring' },
+  { key: 'closed', label: 'Closed' },
+  { key: 'abandoned', label: 'Abandoned' },
+];
+
 interface RiskCaseRow extends RiskCase {
   scores?: { overall_risk?: number; likelihood?: number; impact?: number; [k: string]: unknown };
   hypotheses?: Array<{ title?: string; description?: string }>;
@@ -23,6 +30,7 @@ export default function RiskCases() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [auditByCase, setAuditByCase] = useState<Record<string, any[]>>({});
   const [closingCaseId, setClosingCaseId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<string[]>(['open']); // Default: only open cases
 
   const fetchCases = useCallback(async () => {
     setLoading(true);
@@ -150,6 +158,23 @@ export default function RiskCases() {
     return [];
   };
 
+  const filteredCases = statusFilter.length === 0
+    ? cases
+    : cases.filter((c) => {
+        const status = (c.status ?? '').toString().toLowerCase();
+        return statusFilter.includes(status);
+      });
+
+  const toggleStatus = (key: string) => {
+    setStatusFilter((prev) => {
+      if (prev.includes(key)) {
+        const next = prev.filter((k) => k !== key);
+        return next;
+      }
+      return [...prev, key];
+    });
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
@@ -162,12 +187,43 @@ export default function RiskCases() {
         </button>
       </div>
 
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="text-xs font-medium text-slate-500 uppercase">Filter by status</span>
+        <div className="flex flex-wrap gap-2">
+          {STATUS_OPTIONS.map((opt) => {
+            const active = statusFilter.includes(opt.key);
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => toggleStatus(opt.key)}
+                className={cn(
+                  "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
+                  active
+                    ? "bg-slate-900 text-white border-slate-900"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                )}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          onClick={() => setStatusFilter(['open'])}
+          className="ml-auto text-xs text-slate-500 hover:text-slate-700 underline"
+        >
+          Reset to open only
+        </button>
+      </div>
+
       <div className="glass-panel overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-slate-500">Loading risk_cases...</div>
-        ) : cases.length === 0 ? (
+        ) : filteredCases.length === 0 ? (
           <div className="p-8 text-center text-slate-500">
-            No rows in risk_cases table.
+            No cases match the selected status filters.
             {!supabase && <span className="block mt-2 text-xs text-amber-600">Using backend API. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY for direct Supabase.</span>}
           </div>
         ) : (
@@ -184,7 +240,7 @@ export default function RiskCases() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {cases.map((c, idx) => {
+              {filteredCases.map((c, idx) => {
                 const caseId = c.case_id ?? (c as any).id ?? `case-${idx}`;
                 const open = expandedId === caseId;
                 const score = overallScore(c);
