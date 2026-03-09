@@ -123,7 +123,14 @@ def approve_action(request: ApproveRequest):
         "event_type": f"proposal_{status}",
         "payload": {"proposal_id": request.proposal_id, "decision": request.decision}
     }).execute()
-    
+
+    # When user rejects the proposal, close the linked risk case (keep it for reference, but no longer "open")
+    if status == "rejected" and case_id:
+        supabase.table("risk_cases").update({
+            "status": "closed",
+            "updated_at": "now()"
+        }).eq("case_id", case_id).execute()
+
     return {"status": "success", "proposal": proposal}
 
 @router.post("/rerun")

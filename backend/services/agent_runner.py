@@ -612,11 +612,11 @@ Previous (rejected) plan:
 
 
 async def abandon_scenario(case_id: str, actor: str = "Administrator", reason: str = "") -> Dict[str, Any]:
-    """Set risk case status to abandoned, mark pending proposals rejected, and write audit log."""
+    """Set risk case status to closed, mark pending proposals rejected, and write audit log."""
     res = supabase.table("risk_cases").select("case_id").eq("case_id", case_id).execute()
     if not res.data:
         raise ValueError(f"Risk case not found: {case_id}")
-    supabase.table("risk_cases").update({"status": "abandoned", "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}).eq("case_id", case_id).execute()
+    supabase.table("risk_cases").update({"status": "closed", "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}).eq("case_id", case_id).execute()
     runs_res = supabase.table("action_runs").select("action_run_id").eq("case_id", case_id).execute()
     run_ids = [r["action_run_id"] for r in (runs_res.data or [])]
     if run_ids:

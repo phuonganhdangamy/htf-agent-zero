@@ -44,6 +44,14 @@ Omni is an agentic AI system designed to monitor global supply chain disruptions
 - **Schema**: `/database/schema.sql` — `company_profiles`, `suppliers`, `facilities`, `inventory`, `purchase_orders`, `signal_events`, `risk_cases`, `action_runs`, `change_proposals`, `audit_log`, `memory_preferences`, `memory_patterns`, etc.
 - **Seed**: `/database/seed.sql` — Demo org, suppliers (e.g. SUPP_044 Taiwan), facilities, POs, inventory (4.2 days cover), memory_preferences
 
+### Risk case status and closing
+
+- **Open risk case** — A risk case with `status = 'open'`. New cases are created with this status; it means the case is still active (e.g. awaiting decisions, in progress, or from simulation/test). Dashboard KPIs such as “Active Risk Cases” and “Expected loss prevented” count only **open** cases.
+- **Closed** — The case is no longer active but is kept for reference. Status is set to `closed` in two situations:
+  1. **User rejects the proposal** on the Actions tab — the linked risk case is automatically set to `closed`. The case stays in the Risk Cases list for future reference.
+  2. **User clicks “Close case”** on Risk Cases or Case Detail — the backend sets status to `closed`, marks any pending proposals for that case as rejected, and writes an audit event (`POST /api/agent/abandon`). The case remains in the list.
+- So risk case status is aligned with actions: reject action → case closed; explicit close → case closed. Only **open** cases are included in dashboard counts.
+
 ---
 
 ## Running the Application Locally
@@ -81,7 +89,7 @@ Set `frontend/.env`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`. Optional: `V
 6. **Configurable optimization policy** — Expose Optimization Engine weights (risk reduction vs service level vs cost) and constraints (cost caps, minimum service levels) in `memory_preferences` so operations teams can tune how plans are ranked.
 7. **Tool usage in agents** — Verify LLM agents consistently call `save_risk_case`, `save_change_proposal`, planning tools, and ERP stubs at runtime when the full ADK pipeline is used, and log decisions into `audit_log` for traceability.
 
-For architecture details and UI→backend mapping, see `docs/architecture.md` and `docs/ui-mapping.md`.
+For architecture details, UI→backend mapping, and a **implementation flow** (Users → Frontend → Backend → Database → Gemini/ADK), see `docs/architecture.md`, `docs/ui-mapping.md`, and `docs/implementation-flow.md`.
 
 # Autonomous Supply Chain Resilience Agent
 AI Co-Pilot for Mid-Market Manufacturing Stability
@@ -422,42 +430,3 @@ Responsibilities
 This agent ensures the system follows the structured pipeline:
 
 Perception → Reasoning → Planning → Action → Reflection → Memory
-
-
----------------------------------------------------------------------
-
-## Handoff Notes / Next Steps (Action Layer UI + Drafts)
-
-### Why “View Draft” may not appear yet
-
-The Actions UI shows a **“View Draft”** button only when the corresponding step in `action_runs.steps` contains an `artifact_id` (which references `draft_artifacts.artifact_id`).
-
-Right now, the **UI + step model support** exists, but the **runtime pipeline does not consistently run DraftingAgent** to generate a `draft_artifacts` row and attach it to `action_runs.steps`. As a result, steps often have no `artifact_id`, and the UI correctly hides the button.
-
-### Required behavior (target)
-
-- DraftingAgent must create a `draft_artifacts` row (type `email`) with `preview` content.
-- The draft must be attached to a step by writing `artifact_id` into `action_runs.steps[n].artifact_id`.
-- Step 4 (“CommitAgent — send email”) should **NOT send** an email yet; it should only attach the same draft to the step so the operator can review it.
-
-### Implementation checklist
-
-1. **Wire DraftingAgent into the runtime path that creates `action_runs`**
-   - In `backend/services/agent_runner.py`, after inserting `action_runs` + `change_proposals`, invoke DraftingAgent (or a lightweight drafting function) using the plan/proposal context.
-   - Ensure the draft row includes `action_run_id` so it is linked to the action run.
-
-2. **Ensure DraftingAgent attaches the draft to the step**
-   - `agents/action/drafting_agent.py` should:
-     - insert into `draft_artifacts`
-     - then update `action_runs.steps[1]` (Step 2) to `status='DONE'` and set `artifact_id=<inserted artifact_id>`.
-
-3. **Ensure Step 4 attaches the draft (do not send)**
-   - In `backend/services/action_orchestrator.py`, Step 4 should:
-     - fetch the latest email draft for the `action_run_id`
-     - write that `artifact_id` into `action_runs.steps[3].artifact_id`
-     - mark Step 4 as DONE
-
-4. **Confirm UI rendering expectations**
-   - In `frontend/src/pages/Actions.tsx`, “View Draft” renders when:
-     - `step.artifact_id` exists AND step is `DONE` or `PENDING`.
-   - Once steps contain `artifact_id`, expanding the Actions row should show “View Draft” and open a modal showing `draft_artifacts.preview`.

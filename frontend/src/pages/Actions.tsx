@@ -1,4 +1,4 @@
-import { useState, useEffect, Fragment } from 'react';
+import { useState, useEffect, useMemo, Fragment } from 'react';
 import { supabase } from '../lib/supabase';
 import type { ChangeProposal } from '../types';
 import { CheckCircle2, Clock, Check, X, ChevronRight, ChevronDown, Lock, FileText, Mail, Save } from 'lucide-react';
@@ -66,6 +66,16 @@ export default function ActionsApproval() {
 
     // #17 dedup: track which proposals are currently being approved/rejected
     const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
+
+    // Filters: default show pending + approved; rejected and completed unselected. Date range optional.
+    const [filterStatus, setFilterStatus] = useState<{ pending: boolean; approved: boolean; completed: boolean; rejected: boolean }>({
+        pending: true,
+        approved: true,
+        completed: false,
+        rejected: false,
+    });
+    const [dateFrom, setDateFrom] = useState<string>('');
+    const [dateTo, setDateTo] = useState<string>('');
 
     useEffect(() => {
         fetchActions();
@@ -158,6 +168,30 @@ export default function ActionsApproval() {
         }
         return DEFAULT_STEPS;
     };
+
+    const filteredActions = useMemo(() => {
+        return actions.filter((act) => {
+            const steps = getStepsForRun(act);
+            const allDone = steps.length > 0 && steps.every((s) => s.status === 'DONE');
+            const matchPending = filterStatus.pending && act.status === 'pending';
+            const matchApproved = filterStatus.approved && act.status === 'approved' && !allDone;
+            const matchCompleted = filterStatus.completed && allDone;
+            const matchRejected = filterStatus.rejected && act.status !== 'pending' && act.status !== 'approved';
+            if (!matchPending && !matchApproved && !matchCompleted && !matchRejected) return false;
+            const created = act.created_at ? new Date(act.created_at) : null;
+            if (dateFrom && created) {
+                const fromStart = new Date(dateFrom);
+                fromStart.setHours(0, 0, 0, 0);
+                if (created < fromStart) return false;
+            }
+            if (dateTo && created) {
+                const toEnd = new Date(dateTo);
+                toEnd.setHours(23, 59, 59, 999);
+                if (created > toEnd) return false;
+            }
+            return true;
+        });
+    }, [actions, filterStatus, dateFrom, dateTo]);
 
     const resolveStepDisplayStatus = (steps: ActionStep[], index: number): 'DONE' | 'PENDING' | 'LOCKED' => {
         const step = steps[index];
@@ -284,6 +318,7 @@ export default function ActionsApproval() {
                 approved_by: 'Omni Admin',
                 decision: 'approve',
             });
+            setDraftModal(null); // Close modal so user sees approval succeeded
             fetchActions();
         } catch (err) {
             console.error(err);
@@ -433,10 +468,82 @@ export default function ActionsApproval() {
             </div>
 
             <div className="glass-panel overflow-hidden">
+                {/* Status + Date filters */}
+                <div className="px-6 py-4 border-b border-slate-200 bg-slate-50/50 flex flex-wrap items-center gap-6">
+                    <div className="flex items-center gap-4">
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</span>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={filterStatus.pending}
+                                onChange={(e) => setFilterStatus((s) => ({ ...s, pending: e.target.checked }))}
+                                className="rounded border-slate-300 text-amber-600 focus:ring-amber-500"
+                            />
+                            <span className="text-sm text-slate-700">Pending</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={filterStatus.approved}
+                                onChange={(e) => setFilterStatus((s) => ({ ...s, approved: e.target.checked }))}
+                                className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                            />
+                            <span className="text-sm text-slate-700">Approved</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={filterStatus.completed}
+                                onChange={(e) => setFilterStatus((s) => ({ ...s, completed: e.target.checked }))}
+                                className="rounded border-slate-300 text-slate-600 focus:ring-slate-500"
+                            />
+                            <span className="text-sm text-slate-700">Completed</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={filterStatus.rejected}
+                                onChange={(e) => setFilterStatus((s) => ({ ...s, rejected: e.target.checked }))}
+                                className="rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                            />
+                            <span className="text-sm text-slate-700">Rejected</span>
+                        </label>
+                    </div>
+                    <div className="flex items-center gap-3">
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Date</span>
+                        <input
+                            type="date"
+                            value={dateFrom}
+                            onChange={(e) => setDateFrom(e.target.value)}
+                            className="rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-700"
+                            title="From date"
+                        />
+                        <span className="text-slate-400 text-sm">–</span>
+                        <input
+                            type="date"
+                            value={dateTo}
+                            onChange={(e) => setDateTo(e.target.value)}
+                            className="rounded border border-slate-200 px-2 py-1.5 text-sm text-slate-700"
+                            title="To date"
+                        />
+                        {(dateFrom || dateTo) && (
+                            <button
+                                type="button"
+                                onClick={() => { setDateFrom(''); setDateTo(''); }}
+                                className="text-xs text-slate-500 hover:text-slate-700 underline"
+                            >
+                                Clear dates
+                            </button>
+                        )}
+                    </div>
+                </div>
+
                 {loading ? (
                     <div className="p-8 text-center text-slate-500">Loading proposals...</div>
                 ) : actions.length === 0 ? (
                     <div className="p-8 text-center text-slate-500">No pending actions required.</div>
+                ) : filteredActions.length === 0 ? (
+                    <div className="p-8 text-center text-slate-500">No actions match the current filters. Try adjusting status or date.</div>
                 ) : (
                     <table className="w-full text-left text-sm">
                         <thead className="bg-slate-50/50 text-slate-500 uppercase tracking-wider text-xs border-b border-slate-200">
@@ -451,7 +558,7 @@ export default function ActionsApproval() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {actions.map((act) => {
+                            {filteredActions.map((act) => {
                                 const riskCase = act.action_runs?.risk_cases;
                                 const diffObj = (act.diff as any) || {};
                                 const rawName = diffObj.name;
@@ -494,22 +601,31 @@ export default function ActionsApproval() {
                                         </td>
                                         <td className="px-6 py-4 align-top">
                                             <div className="flex flex-col gap-1.5">
-                                                <span className={cn(
-                                                    "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider w-max",
-                                                    act.status === 'pending' ? "bg-amber-100 text-amber-700" :
-                                                        act.status === 'approved' ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
-                                                )}>
-                                                    {act.status === 'pending' && <Clock size={12} />}
-                                                    {act.status === 'approved' && <CheckCircle2 size={12} />}
-                                                    {act.status}
-                                                </span>
-                                                {act.status === 'pending' && (() => {
-                                                    const waitingStep = steps.find(s => s.status === 'PENDING');
-                                                    return waitingStep ? (
-                                                        <span className="text-[11px] text-slate-500 leading-snug max-w-[160px]">
-                                                            Waiting for: {waitingStep.description || waitingStep.name}
-                                                        </span>
-                                                    ) : null;
+                                                {(() => {
+                                                    const allDone = steps.length > 0 && steps.every((s) => s.status === 'DONE');
+                                                    const displayStatus = allDone ? 'completed' : act.status;
+                                                    return (
+                                                        <>
+                                                            <span className={cn(
+                                                                "flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider w-max",
+                                                                displayStatus === 'pending' ? "bg-amber-100 text-amber-700" :
+                                                                displayStatus === 'completed' ? "bg-slate-100 text-slate-700" :
+                                                                displayStatus === 'approved' ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"
+                                                            )}>
+                                                                {displayStatus === 'pending' && <Clock size={12} />}
+                                                                {(displayStatus === 'approved' || displayStatus === 'completed') && <CheckCircle2 size={12} />}
+                                                                {displayStatus}
+                                                            </span>
+                                                            {act.status === 'pending' && (() => {
+                                                                const waitingStep = steps.find(s => s.status === 'PENDING');
+                                                                return waitingStep ? (
+                                                                    <span className="text-[11px] text-slate-500 leading-snug max-w-[160px]">
+                                                                        Waiting for: {waitingStep.description || waitingStep.name}
+                                                                    </span>
+                                                                ) : null;
+                                                            })()}
+                                                        </>
+                                                    );
                                                 })()}
                                             </div>
                                         </td>
