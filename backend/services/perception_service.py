@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from backend.services.supabase_client import supabase
+from backend.services.signal_event_utils import ensure_start_date
 
 
 def _get_gemini_client():
@@ -39,6 +40,7 @@ def _save_events_direct(events: List[Dict[str, Any]]) -> int:
         # Strip fields not in schema
         for field in ["company_exposed", "severity_score", "risk_score"]:
             ev.pop(field, None)
+        ensure_start_date(ev)
         try:
             supabase.table("signal_events").insert(ev).execute()
             saved += 1
@@ -100,6 +102,7 @@ Return ONLY a valid JSON array. Each element must have exactly these fields:
 - evidence_links: empty array []
 - signal_sources: array of source names like ["Reuters", "Bloomberg", "GDACS"]
 - forecasted: boolean, true if predicted future event, false if current/recent
+- start_date: ISO date string for when the event occurred or started (e.g. "2024-03-01" or "2024-03-01T00:00:00Z"); use today's date for current/recent events
 
 Return only the JSON array, no other text."""
 

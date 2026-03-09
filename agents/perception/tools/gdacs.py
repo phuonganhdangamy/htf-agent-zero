@@ -18,17 +18,22 @@ def fetch_gdacs_alerts(countries: list[str]) -> str:
         for item in root.findall('.//item'):
             title = item.find('title')
             desc = item.find('description')
+            pub_date_el = item.find('pubDate')
             title_text = title.text if title is not None else ""
             desc_text = desc.text if desc is not None else ""
-            
+            pub_date = pub_date_el.text if pub_date_el is not None and pub_date_el.text else None
+
             if any(c.lower() in title_text.lower() or c.lower() in desc_text.lower() for c in countries):
-                events.append({
+                ev = {
                     "title": title_text,
                     "summary": desc_text,
                     "source": "GDACS",
                     "link": item.find('link').text if item.find('link') is not None else ""
-                })
-        
+                }
+                if pub_date:
+                    ev["pubDate"] = pub_date
+                events.append(ev)
+
         # If no events found for the target countries, we return a mock demo event to ensure the demo scenario functions
         if not events and "Taiwan" in countries:
             events.append({

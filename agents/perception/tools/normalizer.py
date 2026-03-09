@@ -1,6 +1,7 @@
 import json
 from google.adk.tools import FunctionTool
 from backend.services.supabase_client import supabase
+from backend.services.signal_event_utils import ensure_start_date
 
 @FunctionTool
 def save_signal_events(events_json: str) -> str:
@@ -49,7 +50,9 @@ def save_signal_events(events_json: str) -> str:
                 if existing.data and len(existing.data) > 0:
                     skipped += 1
                     continue
-                    
+
+                ensure_start_date(ev)
+
                 # Insert
                 supabase.table("signal_events").insert(ev).execute()
                 saved += 1
