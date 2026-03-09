@@ -89,7 +89,7 @@ Set `frontend/.env`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`. Optional: `V
 6. **Configurable optimization policy** — Expose Optimization Engine weights (risk reduction vs service level vs cost) and constraints (cost caps, minimum service levels) in `memory_preferences` so operations teams can tune how plans are ranked.
 7. **Tool usage in agents** — Verify LLM agents consistently call `save_risk_case`, `save_change_proposal`, planning tools, and ERP stubs at runtime when the full ADK pipeline is used, and log decisions into `audit_log` for traceability.
 
-For architecture details and UI→backend mapping, see `docs/architecture.md` and `docs/ui-mapping.md`.
+For architecture details, UI→backend mapping, and a **implementation flow** (Users → Frontend → Backend → Database → Gemini/ADK), see `docs/architecture.md`, `docs/ui-mapping.md`, and `docs/implementation-flow.md`.
 
 # Autonomous Supply Chain Resilience Agent
 AI Co-Pilot for Mid-Market Manufacturing Stability
