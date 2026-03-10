@@ -102,43 +102,27 @@ export default function EventsFeed() {
                                 <th className="px-6 py-4 font-medium">country</th>
                                 <th className="px-6 py-4 font-medium">subtype</th>
                                 <th className="px-6 py-4 font-medium">confidence_score</th>
-                                <th className="px-6 py-4 font-medium">start_date</th>
-                                <th className="px-6 py-4 font-medium">evidence</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {filteredEvents.map((ev: any) => {
-                                const evidenceLinks = Array.isArray(ev.evidence_links) ? ev.evidence_links : (ev.evidence_links ? [ev.evidence_links] : []);
-                                const oneLink = typeof evidenceLinks[0] === 'string' ? evidenceLinks[0] : (evidenceLinks[0]?.url || evidenceLinks[0]);
-                                return (
-                                    <tr key={ev.id} className="hover:bg-slate-50/50 transition-colors">
-                                        <td className="px-6 py-4 font-mono text-xs">{ev.event_id || '—'}</td>
-                                        <td className="px-6 py-4">
-                                            <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded text-xs font-medium">
-                                                {ev.event_type || '—'}
-                                            </span>
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            <div className="flex items-center gap-1.5 text-slate-600">
-                                                <Globe size={14} className="opacity-70" />
-                                                {ev.country || '—'}
-                                            </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-slate-600">{ev.subtype || '—'}</td>
-                                        <td className="px-6 py-4 font-mono text-xs">{ev.confidence_score != null ? Number(ev.confidence_score).toFixed(2) : '—'}</td>
-                                        <td className="px-6 py-4 text-slate-600">
-                                            {ev.start_date ? format(new Date(ev.start_date), 'yyyy-MM-dd') : '—'}
-                                        </td>
-                                        <td className="px-6 py-4">
-                                            {oneLink ? (
-                                                <a href={oneLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline text-xs truncate max-w-[120px] inline-block">
-                                                    {oneLink}
-                                                </a>
-                                            ) : '—'}
-                                        </td>
-                                    </tr>
-                                );
-                            })}
+                            {filteredEvents.map((ev: any) => (
+                                <tr key={ev.id} className="hover:bg-slate-50/50 transition-colors">
+                                    <td className="px-6 py-4 font-mono text-xs">{ev.event_id || '—'}</td>
+                                    <td className="px-6 py-4">
+                                        <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded text-xs font-medium">
+                                            {ev.event_type || '—'}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4">
+                                        <div className="flex items-center gap-1.5 text-slate-600">
+                                            <Globe size={14} className="opacity-70" />
+                                            {ev.country || '—'}
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4 text-slate-600">{ev.subtype || '—'}</td>
+                                    <td className="px-6 py-4 font-mono text-xs">{ev.confidence_score != null ? Number(ev.confidence_score).toFixed(2) : '—'}</td>
+                                </tr>
+                            ))}
                         </tbody>
                     </table>
                 )}

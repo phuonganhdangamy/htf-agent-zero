@@ -219,6 +219,7 @@ async def run_risk_assessment(company_id: str, scenario_text: str, severity: int
     live_context = _build_live_context(company_id, focus_suppliers=focus_suppliers, focus_materials=focus_materials)
     prefs = live_context.get("memory_preferences") or {}
     obj = prefs.get("objectives") or {}
+    risk_appetite = (obj.get("risk_appetite") or "").lower()
     base_cap = obj.get("cost_cap_usd") or obj.get("cost_cap") or 50000
     if budget_flexibility == "flexible":
         cost_cap_override = base_cap * 2
@@ -235,8 +236,29 @@ async def run_risk_assessment(company_id: str, scenario_text: str, severity: int
         constraints.append(f"Focus on materials: {', '.join(focus_materials)}.")
     if flagged_regions:
         constraints.append(f"Weight risk signals more heavily for these regions: {', '.join(flagged_regions)}.")
+    if risk_appetite:
+        if risk_appetite == "low":
+            constraints.append(
+                "Baseline company risk appetite is LOW: prefer conservative plans, backup suppliers, higher inventory buffers, "
+                "and avoid aggressive cost-cutting that meaningfully raises disruption risk."
+            )
+        elif risk_appetite == "high":
+            constraints.append(
+                "Baseline company risk appetite is HIGH: prioritize cost efficiency and speed, and tolerate higher disruption risk "
+                "as long as exposure remains within reasonable bounds."
+            )
+        else:
+            constraints.append(
+                "Baseline company risk appetite is MEDIUM: balance cost, service level, and disruption risk without extreme positions."
+            )
     if risk_tolerance:
-        constraints.append(f"Risk tolerance for this run: {risk_tolerance}. conservative=prefer backup supplier even if expensive; balanced=optimize cost vs service; aggressive=accept higher risk to minimize cost.")
+        constraints.append(
+            f"Risk tolerance for THIS RUN: {risk_tolerance}. "
+            "conservative=prefer backup supplier even if expensive; "
+            "balanced=optimize cost vs service; "
+            "aggressive=accept higher risk to minimize cost. "
+            "Treat this run-level tolerance as an override on top of the baseline company risk appetite."
+        )
     if timeline == "critical":
         constraints.append("Timeline is critical (<2 weeks). Filter out any mitigation with lead time or delay beyond 2 weeks.")
     elif timeline == "tight":
