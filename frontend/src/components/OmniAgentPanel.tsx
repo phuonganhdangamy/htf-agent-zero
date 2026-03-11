@@ -21,19 +21,77 @@ export default function OmniAgentPanel() {
         setLoading(true);
 
         try {
-            const response = await axios.post(`${apiBase}/api/chat`, {
-                message: userMsg,
-                org_id: DEFAULT_COMPANY_ID
+            // Use streaming endpoint for faster perceived response
+            const response = await fetch(`${apiBase}/api/chat/stream`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: userMsg, org_id: DEFAULT_COMPANY_ID }),
             });
-            setMessages(prev => [...prev, {
-                role: 'agent',
-                content: response.data?.response ?? 'No response.'
-            }]);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error('No stream reader');
+            const decoder = new TextDecoder();
+            let fullText = '';
+
+            // Add empty agent message that we'll stream into
+            setMessages(prev => [...prev, { role: 'agent', content: '' }]);
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                const chunk = decoder.decode(value, { stream: true });
+                const lines = chunk.split('\n');
+                for (const line of lines) {
+                    if (line.startsWith('data: ')) {
+                        const data = line.slice(6).trim();
+                        if (data === '[DONE]') break;
+                        try {
+                            const parsed = JSON.parse(data);
+                            if (parsed.text) {
+                                fullText += parsed.text;
+                                setMessages(prev => {
+                                    const updated = [...prev];
+                                    updated[updated.length - 1] = { role: 'agent', content: fullText };
+                                    return updated;
+                                });
+                            }
+                            if (parsed.error) {
+                                fullText += `\n[Error: ${parsed.error}]`;
+                            }
+                        } catch {
+                            // skip malformed chunks
+                        }
+                    }
+                }
+            }
+
+            // If streaming produced nothing, fallback to non-streaming
+            if (!fullText) {
+                const fallback = await axios.post(`${apiBase}/api/chat`, {
+                    message: userMsg,
+                    org_id: DEFAULT_COMPANY_ID,
+                });
+                setMessages(prev => {
+                    const updated = [...prev];
+                    updated[updated.length - 1] = { role: 'agent', content: fallback.data?.response ?? 'No response.' };
+                    return updated;
+                });
+            }
         } catch (err: any) {
-            setMessages(prev => [...prev, {
-                role: 'agent',
-                content: `Error: ${err.response?.data?.detail ?? err.message}`
-            }]);
+            setMessages(prev => {
+                // Update last message if it was our empty streaming placeholder
+                const last = prev[prev.length - 1];
+                if (last?.role === 'agent' && !last.content) {
+                    const updated = [...prev];
+                    updated[updated.length - 1] = { role: 'agent', content: `Error: ${err.message}` };
+                    return updated;
+                }
+                return [...prev, { role: 'agent', content: `Error: ${err.message}` }];
+            });
         } finally {
             setLoading(false);
         }

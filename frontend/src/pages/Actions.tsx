@@ -1,10 +1,12 @@
-import { useState, useEffect, useMemo, Fragment } from 'react';
+import { useState, useEffect, useMemo, Fragment, lazy, Suspense } from 'react';
 import { supabase } from '../lib/supabase';
 import type { ChangeProposal } from '../types';
-import { CheckCircle2, Clock, Check, X, ChevronRight, ChevronDown, Lock, FileText, Mail, Save } from 'lucide-react';
+import { CheckCircle2, Clock, Check, X, ChevronRight, ChevronDown, Lock, FileText, Mail, Save, AlertTriangle, RotateCcw, Loader2, Map } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
 import axios from 'axios';
+
+const DeliveryRouteMap = lazy(() => import('../components/DeliveryRouteMap'));
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
@@ -66,6 +68,16 @@ export default function ActionsApproval() {
 
     // #17 dedup: track which proposals are currently being approved/rejected
     const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
+
+    // Reject-and-replan modal state
+    const [rejectModal, setRejectModal] = useState<{
+        proposalId: string;
+        actionRunId: string;
+    } | null>(null);
+    const [rejectReason, setRejectReason] = useState('');
+    const [rejectCreateNewPlan, setRejectCreateNewPlan] = useState(true);
+    const [rejectLoading, setRejectLoading] = useState(false);
+    const [showRouteMap, setShowRouteMap] = useState(false);
 
     // Filters: default show pending + approved; rejected and completed unselected. Date range optional.
     const [filterStatus, setFilterStatus] = useState<{ pending: boolean; approved: boolean; completed: boolean; rejected: boolean }>({
@@ -135,23 +147,33 @@ export default function ActionsApproval() {
         });
     };
 
-    // #16: top-level reject — use backend API + lock the pending action run step
-    const handleReject = async (proposalId: string, actionRunId?: string) => {
-        await withProcessing(proposalId, async () => {
-            await axios.post(`${API_BASE}/api/agent/approve`, {
-                proposal_id: proposalId,
-                approved_by: 'Omni Admin',
-                decision: 'reject',
+    // #16: top-level reject — open modal asking why before rejecting
+    const handleReject = (proposalId: string, actionRunId?: string) => {
+        if (!actionRunId) return;
+        setRejectReason('');
+        setRejectCreateNewPlan(true);
+        setRejectModal({ proposalId, actionRunId });
+    };
+
+    // Submit the reject-and-replan flow
+    const handleRejectSubmit = async () => {
+        if (!rejectModal) return;
+        setRejectLoading(true);
+        try {
+            await axios.post(`${API_BASE}/api/agent/reject-and-replan`, {
+                proposal_id: rejectModal.proposalId,
+                action_run_id: rejectModal.actionRunId,
+                rejection_reason: rejectReason || 'No reason given',
+                create_new_plan: rejectCreateNewPlan,
+                actor: 'Omni Admin',
             });
-            // Lock the pending ApprovalAgent step (index 2) so it cascades downstream
-            if (actionRunId) {
-                await axios.patch(`${API_BASE}/api/agent/action_runs/${actionRunId}/steps`, {
-                    step_index: 2,
-                    status: 'LOCKED',
-                });
-            }
+            setRejectModal(null);
             fetchActions();
-        });
+        } catch (err) {
+            console.error(err);
+        } finally {
+            setRejectLoading(false);
+        }
     };
 
     const getStepsForRun = (act: JoinedProposal): ActionStep[] => {
@@ -246,25 +268,11 @@ export default function ActionsApproval() {
         }
     };
 
-    const handleStepReject = async (proposalId: string, actionRunId: string, stepIndex: number) => {
-        try {
-            // Lock the rejected step so downstream steps remain blocked
-            await axios.patch(`${API_BASE}/api/agent/action_runs/${actionRunId}/steps`, {
-                step_index: stepIndex,
-                status: 'LOCKED',
-            });
-
-            // Also mark the overall proposal as rejected so status chips and flows stay consistent
-            await axios.post(`${API_BASE}/api/agent/approve`, {
-                proposal_id: proposalId,
-                approved_by: 'Omni Admin',
-                decision: 'reject',
-            });
-
-            fetchActions();
-        } catch (err) {
-            console.error(err);
-        }
+    const handleStepReject = (proposalId: string, actionRunId: string, _stepIndex: number) => {
+        // Open the same reject modal — routes through reject-and-replan endpoint
+        setRejectReason('');
+        setRejectCreateNewPlan(true);
+        setRejectModal({ proposalId, actionRunId });
     };
 
     // #7: persist current email draft edits (used by Save Draft + Approve)
@@ -715,6 +723,25 @@ export default function ActionsApproval() {
                                                             </div>
                                                         );
                                                     })}
+
+                                                    {/* Delivery Route Map toggle */}
+                                                    <div className="mt-4 pt-3 border-t border-slate-200">
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); setShowRouteMap(!showRouteMap); }}
+                                                            className="flex items-center gap-2 text-xs font-bold text-slate-600 uppercase tracking-wider hover:text-blue-600 transition-colors"
+                                                        >
+                                                            <Map size={14} />
+                                                            {showRouteMap ? 'Hide' : 'Show'} Delivery Routes
+                                                            {showRouteMap ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                                                        </button>
+                                                        {showRouteMap && (
+                                                            <div className="mt-3">
+                                                                <Suspense fallback={<div className="text-sm text-slate-400 py-4">Loading map...</div>}>
+                                                                    <DeliveryRouteMap compact />
+                                                                </Suspense>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </td>
                                         </tr>
@@ -814,6 +841,93 @@ export default function ActionsApproval() {
                                 <Check size={16} /> Approve & Proceed
                             </button>
 
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Reject-and-Replan Modal */}
+            {rejectModal && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => !rejectLoading && setRejectModal(null)}>
+                    <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-6 py-4 border-b border-slate-200 flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center">
+                                <AlertTriangle size={20} className="text-rose-600" />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-slate-900">Reject Proposal</h3>
+                                <p className="text-sm text-slate-500">Why are you rejecting this plan?</p>
+                            </div>
+                        </div>
+
+                        <div className="px-6 py-5 space-y-4">
+                            <div>
+                                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Rejection Reason</label>
+                                <textarea
+                                    value={rejectReason}
+                                    onChange={(e) => setRejectReason(e.target.value)}
+                                    placeholder="e.g. Cost too high, prefer dual-sourcing, timeline unrealistic..."
+                                    className="w-full border border-slate-200 rounded-lg p-3 text-sm text-slate-700 min-h-[100px] focus:ring-2 focus:ring-rose-200 focus:border-rose-400 transition-colors"
+                                    disabled={rejectLoading}
+                                />
+                            </div>
+
+                            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                                <label className="flex items-start gap-3 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={rejectCreateNewPlan}
+                                        onChange={(e) => setRejectCreateNewPlan(e.target.checked)}
+                                        className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 mt-0.5"
+                                        disabled={rejectLoading}
+                                    />
+                                    <div>
+                                        <span className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                                            <RotateCcw size={14} className="text-emerald-600" />
+                                            Generate a new plan
+                                        </span>
+                                        <p className="text-xs text-slate-500 mt-0.5">
+                                            Route back to the reasoning/planning layer with your feedback. Previous risk case context is preserved.
+                                        </p>
+                                    </div>
+                                </label>
+                            </div>
+
+                            {!rejectCreateNewPlan && (
+                                <p className="text-xs text-slate-500 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                                    The case will be closed without generating a new plan.
+                                </p>
+                            )}
+                        </div>
+
+                        <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
+                            <button
+                                onClick={() => setRejectModal(null)}
+                                disabled={rejectLoading}
+                                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-50"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleRejectSubmit}
+                                disabled={rejectLoading}
+                                className="px-4 py-2 text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors flex items-center gap-2 disabled:opacity-50"
+                            >
+                                {rejectLoading ? (
+                                    <>
+                                        <Loader2 size={16} className="animate-spin" />
+                                        {rejectCreateNewPlan ? 'Generating new plan...' : 'Rejecting...'}
+                                    </>
+                                ) : (
+                                    <>
+                                        {rejectCreateNewPlan ? (
+                                            <><RotateCcw size={16} /> Reject & Replan</>
+                                        ) : (
+                                            <><X size={16} /> Reject & Close</>
+                                        )}
+                                    </>
+                                )}
+                            </button>
                         </div>
                     </div>
                 </div>

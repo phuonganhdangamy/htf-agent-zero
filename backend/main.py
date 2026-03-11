@@ -94,4 +94,77 @@ app.include_router(monitoring.router, prefix="/api/monitoring", tags=["Monitorin
 
 @app.get("/health")
 def health_check():
+    """Basic liveness check."""
     return {"status": "ok"}
+
+
+@app.get("/health/detailed")
+def health_check_detailed():
+    """
+    Detailed health check: verifies all critical services are accessible.
+    Checks: Supabase DB, Gemini API key, agent modules, chat streaming,
+    reject-and-replan endpoint, deterministic tools.
+    """
+    checks = {}
+
+    # 1. Supabase connectivity
+    try:
+        res = supabase.table("risk_cases").select("case_id").limit(1).execute()
+        checks["supabase"] = {"status": "ok", "detail": f"{len(res.data or [])} rows accessible"}
+    except Exception as e:
+        checks["supabase"] = {"status": "error", "detail": str(e)}
+
+    # 2. Gemini API key configured
+    api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("backend_API_KEY", "")
+    checks["gemini_api_key"] = {
+        "status": "ok" if api_key else "error",
+        "detail": "configured" if api_key else "GOOGLE_API_KEY not set"
+    }
+
+    # 3. Risk Analyst Agent (merged Cluster+Exposure)
+    try:
+        from agents.reasoning.risk_analyst_agent import build_risk_analyst_agent
+        agent = build_risk_analyst_agent()
+        checks["risk_analyst_agent"] = {"status": "ok", "detail": f"agent '{agent.name}' loaded"}
+    except Exception as e:
+        checks["risk_analyst_agent"] = {"status": "error", "detail": str(e)}
+
+    # 4. Deterministic tools (Change Proposal, Audit, Approval)
+    try:
+        from agents.action.change_proposal_agent import generate_erp_diff
+        from agents.action.audit_agent import write_audit_record
+        from agents.action.approval_agent import check_approval_status
+        checks["deterministic_tools"] = {
+            "status": "ok",
+            "detail": "generate_erp_diff, write_audit_record, check_approval_status loaded"
+        }
+    except Exception as e:
+        checks["deterministic_tools"] = {"status": "error", "detail": str(e)}
+
+    # 5. Reasoning coordinator (with merged agent)
+    try:
+        from agents.reasoning.agent import build_reasoning_coordinator
+        coordinator = build_reasoning_coordinator()
+        checks["reasoning_coordinator"] = {"status": "ok", "detail": f"pipeline '{coordinator.name}' loaded"}
+    except Exception as e:
+        checks["reasoning_coordinator"] = {"status": "error", "detail": str(e)}
+
+    # 6. Chat streaming endpoint exists
+    try:
+        from backend.routers.chat import chat_stream
+        checks["chat_streaming"] = {"status": "ok", "detail": "chat/stream endpoint available"}
+    except Exception as e:
+        checks["chat_streaming"] = {"status": "error", "detail": str(e)}
+
+    # 7. Reject-and-replan endpoint exists
+    try:
+        from backend.routers.agent import reject_and_replan
+        checks["reject_and_replan"] = {"status": "ok", "detail": "reject-and-replan endpoint available"}
+    except Exception as e:
+        checks["reject_and_replan"] = {"status": "error", "detail": str(e)}
+
+    all_ok = all(c["status"] == "ok" for c in checks.values())
+    return {
+        "status": "ok" if all_ok else "degraded",
+        "checks": checks
+    }

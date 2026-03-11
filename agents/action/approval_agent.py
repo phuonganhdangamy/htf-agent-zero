@@ -1,38 +1,77 @@
+"""
+Approval Agent — converted from LLM agent to deterministic tool.
+
+Polls for human approval on a change proposal. This is a pure polling
+operation (no LLM reasoning needed): check the proposal status in DB
+and return the result.
+"""
 import json
-import asyncio
+import time
+from typing import Dict, Any, Optional
+from backend.services.supabase_client import supabase
+
+
+def check_approval_status(proposal_id: str) -> Dict[str, Any]:
+    """
+    Deterministic function: checks current approval status of a proposal.
+    No LLM needed — just a database lookup.
+
+    Returns:
+        Dict with status ('pending', 'approved', 'rejected') and approved_by
+    """
+    try:
+        res = supabase.table("change_proposals").select(
+            "status, approved_by, approved_at"
+        ).eq("proposal_id", proposal_id).execute()
+        if res.data:
+            proposal = res.data[0]
+            return {
+                "status": proposal.get("status", "pending"),
+                "approved_by": proposal.get("approved_by"),
+                "approved_at": proposal.get("approved_at"),
+            }
+        return {"status": "not_found"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+def poll_for_approval_sync(
+    proposal_id: str,
+    timeout_minutes: int = 5,
+    poll_interval: int = 5,
+) -> Dict[str, Any]:
+    """
+    Synchronous polling for approval. Blocks until approval/rejection or timeout.
+    No LLM needed.
+    """
+    timeout_seconds = timeout_minutes * 60
+    elapsed = 0
+
+    while elapsed < timeout_seconds:
+        result = check_approval_status(proposal_id)
+        status = result.get("status")
+        if status in ("approved", "rejected"):
+            return result
+        if status == "error":
+            return result
+        time.sleep(poll_interval)
+        elapsed += poll_interval
+
+    return {"status": "timeout"}
+
+
+# ---- Backwards-compatible LLM agent builder (kept for ADK pipeline use) ----
 from google.adk.agents import LlmAgent
 from google.adk.tools import FunctionTool
-from backend.services.supabase_client import supabase
 
 @FunctionTool
 def poll_for_approval(proposal_id: str, timeout_minutes: int = 5) -> str:
-    """
-    Polls the change_proposals table for approval by a human.
-    In standard ADK we must block inside a tool or use specialized async events.
-    For this demo, we simply poll synchronously or mock wait.
-    """
-    import time
-    timeout_seconds = timeout_minutes * 60
-    elapsed = 0
-    poll_interval = 5
-    
-    while elapsed < timeout_seconds:
-        try:
-            res = supabase.table("change_proposals").select("status, approved_by").eq("proposal_id", proposal_id).execute()
-            if res.data:
-                proposal = res.data[0]
-                status = proposal.get("status")
-                if status in ["approved", "rejected"]:
-                    return json.dumps({"status": status, "approved_by": proposal.get("approved_by")})
-        except Exception as e:
-            return json.dumps({"error": str(e)})
-            
-        time.sleep(poll_interval)
-        elapsed += poll_interval
-        
-    return json.dumps({"status": "timeout"})
+    """Polls the change_proposals table for approval by a human."""
+    result = poll_for_approval_sync(proposal_id, timeout_minutes)
+    return json.dumps(result)
 
 def build_approval_agent() -> LlmAgent:
+    """Legacy LLM agent builder — kept for backwards compatibility."""
     return LlmAgent(
         name="approval_agent",
         description="Waits for a Human-In-The-Loop (HITL) to approve the proposed change.",

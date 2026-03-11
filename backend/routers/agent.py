@@ -37,6 +37,13 @@ class RerunRequest(BaseModel):
     constraint_overrides: Optional[Dict[str, Any]] = None
     actor: Optional[str] = "Administrator"
 
+class RejectAndReplanRequest(BaseModel):
+    proposal_id: str
+    action_run_id: str
+    rejection_reason: str = "No reason given"
+    create_new_plan: bool = True
+    actor: str = "Omni Admin"
+
 class AbandonRequest(BaseModel):
     case_id: str
     actor: Optional[str] = "Administrator"
@@ -148,6 +155,85 @@ async def rerun_with_feedback(request: RerunRequest):
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
+@router.post("/reject-and-replan")
+async def reject_and_replan(request: RejectAndReplanRequest):
+    """
+    Reject a proposal with a reason, then re-route the case back to the
+    reasoning/planning layer to generate a new plan. The previous risk case
+    context (scores, exposure, hypotheses) is preserved so the Manager Agent
+    can pick up where it left off.
+    """
+    # 1. Lock the pending step and cascade downstream
+    update_step(action_run_id=request.action_run_id, step_index=2, status="LOCKED")
+
+    # 2. Reject the proposal
+    update_res = supabase.table("change_proposals").update({
+        "status": "rejected",
+        "approved_by": request.actor,
+        "approved_at": "now()"
+    }).eq("proposal_id", request.proposal_id).execute()
+    if not update_res.data:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+
+    # 3. Find linked case_id
+    run_res = supabase.table("action_runs").select("case_id").eq("action_run_id", request.action_run_id).execute()
+    case_id = run_res.data[0].get("case_id") if run_res.data else None
+    if not case_id:
+        raise HTTPException(status_code=404, detail="No risk case linked to this action run")
+
+    # 4. Audit log the rejection with reason
+    supabase.table("audit_log").insert({
+        "action_run_id": request.action_run_id,
+        "case_id": case_id,
+        "actor": request.actor,
+        "event_type": "proposal_rejected_for_replan",
+        "payload": {
+            "proposal_id": request.proposal_id,
+            "rejection_reason": request.rejection_reason,
+            "create_new_plan": request.create_new_plan,
+        }
+    }).execute()
+
+    # 5. If user wants a new plan, re-route to planning layer (rerun_plan_only)
+    if request.create_new_plan:
+        # Keep risk case open (don't close it like normal reject does)
+        supabase.table("risk_cases").update({
+            "status": "replanning",
+            "updated_at": "now()"
+        }).eq("case_id", case_id).execute()
+
+        try:
+            result = await rerun_plan_only(
+                case_id=case_id,
+                rejection_reason=request.rejection_reason,
+                feedback_text=request.rejection_reason,
+                constraint_overrides={},
+                actor=request.actor,
+            )
+            return {
+                "status": "replanning",
+                "case_id": case_id,
+                "replan_result": result,
+                "message": "Plan rejected. New plan generated and awaiting approval."
+            }
+        except Exception as e:
+            return {
+                "status": "replan_error",
+                "case_id": case_id,
+                "message": str(e)
+            }
+    else:
+        # Just reject and close (same as old behavior)
+        supabase.table("risk_cases").update({
+            "status": "closed",
+            "updated_at": "now()"
+        }).eq("case_id", case_id).execute()
+        return {
+            "status": "rejected",
+            "case_id": case_id,
+            "message": "Proposal rejected and case closed."
+        }
 
 @router.post("/abandon")
 async def abandon_scenario_route(request: AbandonRequest):

@@ -3,6 +3,7 @@ import os
 import json
 import httpx
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from backend.services.supabase_client import supabase
 
@@ -23,6 +24,9 @@ def get_gemini_client():
     _client = genai.Client(api_key=_api_key)
     return _client
 
+# Cache for chat context (avoid re-fetching DB on every message within short window)
+_context_cache: dict = {"data": None, "timestamp": 0}
+CONTEXT_CACHE_TTL = 60  # seconds
 
 ALPHA_VANTAGE_TIMEOUT = 3.0
 COMMODITIES = ["COPPER", "ALUMINUM", "NATURAL_GAS", "CRUDE_OIL_WTI"]
@@ -151,21 +155,30 @@ class ChatRequest(BaseModel):
 async def chat(request: ChatRequest):
     """Chat with live context (Supabase + commodity prices + session summary) and optional Google Search grounding."""
     try:
-        context = await build_chat_context(request.org_id)
+        import time as _time
+
+        # Use cached context if fresh enough
+        now = _time.time()
+        if _context_cache["data"] and (now - _context_cache["timestamp"]) < CONTEXT_CACHE_TTL:
+            context = _context_cache["data"]
+        else:
+            context = await build_chat_context(request.org_id)
+            _context_cache["data"] = context
+            _context_cache["timestamp"] = now
+
         system_prompt = _build_system_prompt(context, org_id=request.org_id)
         user_message = request.message
 
         client = get_gemini_client()
         from google.genai import types
 
-        # Prefer model that supports Google Search; fallback to flash
         model_name = "gemini-2.0-flash"
         config_kwargs = {}
         try:
             grounding_tool = types.Tool(google_search=types.GoogleSearch())
             config_kwargs["tools"] = [grounding_tool]
         except Exception:
-            pass  # no search tool, proceed without
+            pass
 
         config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
         contents = f"{system_prompt}\n\nUser question: {user_message}"
@@ -192,3 +205,49 @@ async def chat(request: ChatRequest):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/chat/stream")
+async def chat_stream(request: ChatRequest):
+    """Streaming chat endpoint for faster perceived response times."""
+    import time as _time
+
+    now = _time.time()
+    if _context_cache["data"] and (now - _context_cache["timestamp"]) < CONTEXT_CACHE_TTL:
+        context = _context_cache["data"]
+    else:
+        context = await build_chat_context(request.org_id)
+        _context_cache["data"] = context
+        _context_cache["timestamp"] = now
+
+    system_prompt = _build_system_prompt(context, org_id=request.org_id)
+    client = get_gemini_client()
+    from google.genai import types
+
+    model_name = "gemini-2.0-flash"
+    config_kwargs = {}
+    try:
+        grounding_tool = types.Tool(google_search=types.GoogleSearch())
+        config_kwargs["tools"] = [grounding_tool]
+    except Exception:
+        pass
+
+    config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
+    contents = f"{system_prompt}\n\nUser question: {request.message}"
+
+    async def generate():
+        try:
+            response = client.models.generate_content_stream(
+                model=model_name,
+                contents=contents,
+                config=config,
+            )
+            for chunk in response:
+                text = chunk.text if hasattr(chunk, "text") else ""
+                if text:
+                    yield f"data: {json.dumps({'text': text})}\n\n"
+            yield "data: [DONE]\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+
+    return StreamingResponse(generate(), media_type="text/event-stream")

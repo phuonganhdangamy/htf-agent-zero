@@ -98,22 +98,9 @@ def run_step_7_verify_erp(action_run_id: str) -> None:
 
 
 def run_step_8_audit(action_run_id: str, approved_by: str) -> None:
-    """Step 9 (index 8): Write audit log."""
-    run_res = supabase.table("action_runs").select("case_id").eq("action_run_id", action_run_id).execute()
-    case_id = (run_res.data[0].get("case_id") or "") if run_res.data else ""
-    payload = {
-        "action_run_id": action_run_id,
-        "actor": approved_by,
-        "event_type": "action_workflow_completed",
-        "steps_completed": ["commit_erp", "verification", "audit"],
-    }
-    supabase.table("audit_log").insert({
-        "action_run_id": action_run_id,
-        "case_id": case_id,
-        "actor": approved_by,
-        "event_type": "action_workflow_completed",
-        "payload": payload,
-    }).execute()
+    """Step 9 (index 8): Write audit log using deterministic audit tool."""
+    from agents.action.audit_agent import write_workflow_completion_audit
+    write_workflow_completion_audit(action_run_id, approved_by)
     update_step(action_run_id, 8, "DONE")
 
 

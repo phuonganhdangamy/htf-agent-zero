@@ -1,12 +1,15 @@
 import json
-from google.adk.agents import LlmAgent, SequentialAgent, ParallelAgent
+from google.adk.agents import LlmAgent, SequentialAgent
 from google.adk.tools import FunctionTool
 from backend.services.supabase_client import supabase
 
-from agents.reasoning.cluster_agent import build_cluster_agent
-from agents.reasoning.exposure_agent import build_exposure_agent
+from agents.reasoning.risk_analyst_agent import build_risk_analyst_agent
 from agents.reasoning.hypothesis_agent import build_hypothesis_agent
 from agents.reasoning.scoring_agent import build_scoring_agent
+
+# Keep old imports available for backwards compatibility if needed
+from agents.reasoning.cluster_agent import build_cluster_agent
+from agents.reasoning.exposure_agent import build_exposure_agent
 
 @FunctionTool
 def save_risk_case(case_json: str) -> str:
@@ -19,22 +22,12 @@ def save_risk_case(case_json: str) -> str:
         return json.dumps({"error": str(e)})
 
 def build_reasoning_coordinator() -> SequentialAgent:
-    cluster_agent = build_cluster_agent()
-    exposure_agent = build_exposure_agent()
+    # Merged: Risk Analyst Agent replaces the parallel Cluster + Exposure agents
+    risk_analyst = build_risk_analyst_agent()
     hypothesis_agent = build_hypothesis_agent()
     scoring_agent = build_scoring_agent()
-    
-    # We define a coordinator that uses ADK transfer or directly handles sequential steps
-    # The prompt actually specified: 
-    # "Run ClusterAgent + ExposureAgent in parallel using ParallelAgent before handing off to HypothesisAgent then ScoringAgent sequentially."
-    
-    parallel_gathering = ParallelAgent(
-        name="parallel_gathering_agent",
-        description="Runs Cluster and Exposure analysis together.",
-        sub_agents=[cluster_agent, exposure_agent]
-    )
-    
-    # We use a final wrapper agent to call the save tool since SequentialAgent just runs subagents in order
+
+    # Persister saves the final RiskCase to DB
     persister = LlmAgent(
         name="persister_agent",
         description="Takes the RiskCase JSON and saves it to the database.",
@@ -42,11 +35,12 @@ def build_reasoning_coordinator() -> SequentialAgent:
         model="gemini-2.5-flash",
         tools=[save_risk_case]
     )
-    
+
+    # Sequential pipeline: RiskAnalyst → Hypothesis → Scoring → Persister
     pipeline = SequentialAgent(
         name="risk_reasoner_coordinator",
         description="Coordinates reasoning from raw events to a calculated RiskCase.",
-        sub_agents=[parallel_gathering, hypothesis_agent, scoring_agent, persister]
+        sub_agents=[risk_analyst, hypothesis_agent, scoring_agent, persister]
     )
-    
+
     return pipeline
