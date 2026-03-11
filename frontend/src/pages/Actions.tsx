@@ -55,6 +55,7 @@ interface JoinedProposal extends ChangeProposal {
         risk_cases?: {
             risk_category: string;
             headline: string;
+            status?: string;
         };
     };
 }
@@ -98,7 +99,7 @@ export default function ActionsApproval() {
             setLoading(true);
             const { data, error } = await supabase
                 .from('change_proposals')
-                .select('*, action_runs(case_id, action_run_id, steps, risk_cases(risk_category, headline))')
+                .select('*, action_runs(case_id, action_run_id, steps, risk_cases(risk_category, headline, status))')
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -658,7 +659,10 @@ export default function ActionsApproval() {
                                                         <Check size={16} />
                                                     </button>
                                                     <button
-                                                        onClick={(e) => { e.stopPropagation(); handleReject(act.proposal_id, actionRunId); }}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleReject(act.proposal_id, actionRunId);
+                                                        }}
                                                         disabled={isProcessing}
                                                         className="p-1.5 bg-rose-100 text-rose-600 hover:bg-rose-200 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                         title="Reject"
@@ -673,6 +677,16 @@ export default function ActionsApproval() {
                                         <tr key={`${act.id}-expand`} className="bg-slate-50/50">
                                             <td colSpan={7} className="px-6 py-4 border-t border-slate-200">
                                                 <div className="pl-6 space-y-2">
+                                                    {riskCase?.status === 'replanning_after_execution' && (
+                                                        <div className="mb-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs font-medium">
+                                                            An earlier communication for this case was already sent. This is a <strong>follow-up mitigation plan</strong> — the email template has been updated accordingly.
+                                                        </div>
+                                                    )}
+                                                    {riskCase?.status === 'replanning' && (
+                                                        <div className="mb-3 p-3 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 text-xs font-medium">
+                                                            This is a <strong>revised mitigation plan</strong> generated from your rejection feedback. The original plan was not yet executed.
+                                                        </div>
+                                                    )}
                                                     <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3">Step-by-step breakdown</h4>
                                                     {steps.map((s, idx) => {
                                                         const displayStatus = resolveStepDisplayStatus(steps, idx);
@@ -702,10 +716,15 @@ export default function ActionsApproval() {
                                                                     <span className="text-[11px] text-slate-400">{format(new Date(s.timestamp), 'MMM d, HH:mm')}</span>
                                                                 )}
                                                                 {displayStatus === 'DONE' && <CheckCircle2 size={14} className="text-emerald-600" />}
-                                            {displayStatus === 'PENDING' && actionRunId && (
+                                                                {displayStatus === 'PENDING' && actionRunId && (
                                                                     <div className="flex gap-1 ml-auto" onClick={(e) => e.stopPropagation()}>
                                                                         <button onClick={() => handleStepApprove(actionRunId, idx)} className="px-2 py-0.5 bg-emerald-100 text-emerald-600 hover:bg-emerald-200 rounded text-xs font-medium">Approve</button>
-                                                                        <button onClick={() => handleStepReject(act.proposal_id, actionRunId, idx)} className="px-2 py-0.5 bg-rose-100 text-rose-600 hover:bg-rose-200 rounded text-xs font-medium">Reject</button>
+                                                                        <button
+                                                                            onClick={() => handleStepReject(act.proposal_id, actionRunId!, idx)}
+                                                                            className="px-2 py-0.5 bg-rose-100 text-rose-600 hover:bg-rose-200 rounded text-xs font-medium"
+                                                                        >
+                                                                            Reject
+                                                                        </button>
                                                                     </div>
                                                                 )}
                                                                 {/* #7: View Draft button appears when artifact_id is set */}
@@ -762,8 +781,11 @@ export default function ActionsApproval() {
                             <div className="flex items-center gap-2">
                                 {draftModal.artifact.type === 'email' && <Mail size={18} className="text-blue-600" />}
                                 <h3 className="font-bold text-slate-900">
-                                    {draftModal.artifact.type === 'email' ? 'Email Draft' :
-                                     draftModal.artifact.type === 'erp_diff' ? 'ERP Change Diff' :
+                                    {draftModal.artifact.type === 'email'
+                                    ? (draftModal.artifact.structured_payload as any)?.is_follow_up
+                                        ? 'Email Draft (Follow-up)'
+                                        : 'Email Draft'
+                                    : draftModal.artifact.type === 'erp_diff' ? 'ERP Change Diff' :
                                      draftModal.artifact.type === 'slack_message' ? 'Slack Message' : 'Draft Artifact'}
                                 </h3>
                                 <span
