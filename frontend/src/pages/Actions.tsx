@@ -53,9 +53,14 @@ interface JoinedProposal extends ChangeProposal {
         risk_cases?: {
             risk_category: string;
             headline: string;
+            status?: string;
         };
     };
 }
+
+type RejectTarget =
+    | { kind: 'proposal'; proposalId: string; actionRunId?: string; caseId?: string }
+    | { kind: 'step'; proposalId: string; actionRunId: string; stepIndex: number; caseId?: string };
 
 export default function ActionsApproval() {
     const [actions, setActions] = useState<JoinedProposal[]>([]);
@@ -66,6 +71,11 @@ export default function ActionsApproval() {
 
     // #17 dedup: track which proposals are currently being approved/rejected
     const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
+    // Reject modal state
+    const [rejectTarget, setRejectTarget] = useState<RejectTarget | null>(null);
+    const [rejectReason, setRejectReason] = useState<string>('');
+    const [rejectCreateNewPlan, setRejectCreateNewPlan] = useState<boolean>(false);
+    const [rejectSubmitting, setRejectSubmitting] = useState<boolean>(false);
 
     // Filters: default show pending + approved; rejected and completed unselected. Date range optional.
     const [filterStatus, setFilterStatus] = useState<{ pending: boolean; approved: boolean; completed: boolean; rejected: boolean }>({
@@ -86,7 +96,7 @@ export default function ActionsApproval() {
             setLoading(true);
             const { data, error } = await supabase
                 .from('change_proposals')
-                .select('*, action_runs(case_id, action_run_id, steps, risk_cases(risk_category, headline))')
+                .select('*, action_runs(case_id, action_run_id, steps, risk_cases(risk_category, headline, status))')
                 .order('created_at', { ascending: false });
 
             if (error) throw error;
@@ -135,23 +145,11 @@ export default function ActionsApproval() {
         });
     };
 
-    // #16: top-level reject — use backend API + lock the pending action run step
-    const handleReject = async (proposalId: string, actionRunId?: string) => {
-        await withProcessing(proposalId, async () => {
-            await axios.post(`${API_BASE}/api/agent/approve`, {
-                proposal_id: proposalId,
-                approved_by: 'Omni Admin',
-                decision: 'reject',
-            });
-            // Lock the pending ApprovalAgent step (index 2) so it cascades downstream
-            if (actionRunId) {
-                await axios.patch(`${API_BASE}/api/agent/action_runs/${actionRunId}/steps`, {
-                    step_index: 2,
-                    status: 'LOCKED',
-                });
-            }
-            fetchActions();
-        });
+    // Open reject modal for proposal- or step-level actions
+    const openRejectModal = (target: RejectTarget) => {
+        setRejectTarget(target);
+        setRejectReason('');
+        setRejectCreateNewPlan(false);
     };
 
     const getStepsForRun = (act: JoinedProposal): ActionStep[] => {
@@ -246,24 +244,48 @@ export default function ActionsApproval() {
         }
     };
 
-    const handleStepReject = async (proposalId: string, actionRunId: string, stepIndex: number) => {
+    // Confirm rejection from modal: record feedback, mark proposal/step rejected, optionally trigger replanning
+    const handleRejectConfirm = async () => {
+        if (!rejectTarget || !rejectReason.trim()) return;
+        const proposalId = rejectTarget.proposalId;
+        setRejectSubmitting(true);
         try {
-            // Lock the rejected step so downstream steps remain blocked
-            await axios.patch(`${API_BASE}/api/agent/action_runs/${actionRunId}/steps`, {
-                step_index: stepIndex,
-                status: 'LOCKED',
-            });
+            // Lock the specific step if rejecting at step level
+            if (rejectTarget.kind === 'step') {
+                await axios.patch(`${API_BASE}/api/agent/action_runs/${rejectTarget.actionRunId}/steps`, {
+                    step_index: rejectTarget.stepIndex,
+                    status: 'LOCKED',
+                });
+            }
 
-            // Also mark the overall proposal as rejected so status chips and flows stay consistent
+            // Persist rejection + feedback on the proposal (does NOT close the case anymore)
             await axios.post(`${API_BASE}/api/agent/approve`, {
                 proposal_id: proposalId,
                 approved_by: 'Omni Admin',
                 decision: 'reject',
+                reason: rejectReason,
+                create_new_plan: rejectCreateNewPlan,
             });
 
+            // Optionally send the case back into planning with this feedback
+            if (rejectCreateNewPlan && rejectTarget.caseId) {
+                await axios.post(`${API_BASE}/api/agent/rerun`, {
+                    case_id: rejectTarget.caseId,
+                    rejection_reason: rejectReason,
+                    feedback_text: rejectReason,
+                    constraint_overrides: {},
+                    actor: 'Omni Admin',
+                });
+            }
+
+            setRejectTarget(null);
+            setRejectReason('');
+            setRejectCreateNewPlan(false);
             fetchActions();
         } catch (err) {
             console.error(err);
+        } finally {
+            setRejectSubmitting(false);
         }
     };
 
@@ -650,7 +672,15 @@ export default function ActionsApproval() {
                                                         <Check size={16} />
                                                     </button>
                                                     <button
-                                                        onClick={(e) => { e.stopPropagation(); handleReject(act.proposal_id, actionRunId); }}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            openRejectModal({
+                                                                kind: 'proposal',
+                                                                proposalId: act.proposal_id,
+                                                                actionRunId,
+                                                                caseId: act.action_runs?.case_id,
+                                                            });
+                                                        }}
                                                         disabled={isProcessing}
                                                         className="p-1.5 bg-rose-100 text-rose-600 hover:bg-rose-200 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                                                         title="Reject"
@@ -665,6 +695,11 @@ export default function ActionsApproval() {
                                         <tr key={`${act.id}-expand`} className="bg-slate-50/50">
                                             <td colSpan={7} className="px-6 py-4 border-t border-slate-200">
                                                 <div className="pl-6 space-y-2">
+                                                    {riskCase?.status === 'replanning_after_execution' && (
+                                                        <div className="mb-3 p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs font-medium">
+                                                            An earlier communication for this case was already sent. This draft is a follow-up revision, not a replacement.
+                                                        </div>
+                                                    )}
                                                     <h4 className="text-xs font-bold text-slate-600 uppercase tracking-wider mb-3">Step-by-step breakdown</h4>
                                                     {steps.map((s, idx) => {
                                                         const displayStatus = resolveStepDisplayStatus(steps, idx);
@@ -694,10 +729,23 @@ export default function ActionsApproval() {
                                                                     <span className="text-[11px] text-slate-400">{format(new Date(s.timestamp), 'MMM d, HH:mm')}</span>
                                                                 )}
                                                                 {displayStatus === 'DONE' && <CheckCircle2 size={14} className="text-emerald-600" />}
-                                            {displayStatus === 'PENDING' && actionRunId && (
+                                                                {displayStatus === 'PENDING' && actionRunId && (
                                                                     <div className="flex gap-1 ml-auto" onClick={(e) => e.stopPropagation()}>
                                                                         <button onClick={() => handleStepApprove(actionRunId, idx)} className="px-2 py-0.5 bg-emerald-100 text-emerald-600 hover:bg-emerald-200 rounded text-xs font-medium">Approve</button>
-                                                                        <button onClick={() => handleStepReject(act.proposal_id, actionRunId, idx)} className="px-2 py-0.5 bg-rose-100 text-rose-600 hover:bg-rose-200 rounded text-xs font-medium">Reject</button>
+                                                                        <button
+                                                                            onClick={() =>
+                                                                                openRejectModal({
+                                                                                    kind: 'step',
+                                                                                    proposalId: act.proposal_id,
+                                                                                    actionRunId,
+                                                                                    stepIndex: idx,
+                                                                                    caseId: act.action_runs?.case_id,
+                                                                                })
+                                                                            }
+                                                                            className="px-2 py-0.5 bg-rose-100 text-rose-600 hover:bg-rose-200 rounded text-xs font-medium"
+                                                                        >
+                                                                            Reject
+                                                                        </button>
                                                                     </div>
                                                                 )}
                                                                 {/* #7: View Draft button appears when artifact_id is set */}
@@ -735,8 +783,11 @@ export default function ActionsApproval() {
                             <div className="flex items-center gap-2">
                                 {draftModal.artifact.type === 'email' && <Mail size={18} className="text-blue-600" />}
                                 <h3 className="font-bold text-slate-900">
-                                    {draftModal.artifact.type === 'email' ? 'Email Draft' :
-                                     draftModal.artifact.type === 'erp_diff' ? 'ERP Change Diff' :
+                                    {draftModal.artifact.type === 'email'
+                                    ? (draftModal.artifact.structured_payload as any)?.is_follow_up
+                                        ? 'Email Draft (Follow-up)'
+                                        : 'Email Draft'
+                                    : draftModal.artifact.type === 'erp_diff' ? 'ERP Change Diff' :
                                      draftModal.artifact.type === 'slack_message' ? 'Slack Message' : 'Draft Artifact'}
                                 </h3>
                                 <span
@@ -814,6 +865,66 @@ export default function ActionsApproval() {
                                 <Check size={16} /> Approve & Proceed
                             </button>
 
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Reject modal: capture feedback + optional replanning */}
+            {rejectTarget && (
+                <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => !rejectSubmitting && setRejectTarget(null)}>
+                    <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                            <h3 className="font-bold text-slate-900">Reject action</h3>
+                            <button
+                                onClick={() => !rejectSubmitting && setRejectTarget(null)}
+                                className="p-1 hover:bg-slate-100 rounded"
+                                disabled={rejectSubmitting}
+                            >
+                                <X size={20} className="text-slate-500" />
+                            </button>
+                        </div>
+                        <div className="px-6 py-4 space-y-4">
+                            <p className="text-xs text-slate-500">
+                                Rejection is treated as feedback. The risk case will remain open unless you explicitly close it.
+                            </p>
+                            <div>
+                                <label className="block text-xs font-semibold text-slate-600 uppercase mb-1">
+                                    Why are you rejecting this? <span className="text-rose-500">*</span>
+                                </label>
+                                <textarea
+                                    value={rejectReason}
+                                    onChange={(e) => setRejectReason(e.target.value)}
+                                    className="w-full border border-slate-200 rounded-lg p-3 text-sm text-slate-800 min-h-[120px]"
+                                    placeholder="Share context or constraints so Omni can propose a better plan next time."
+                                />
+                            </div>
+                            <label className="flex items-center gap-2 text-sm text-slate-700">
+                                <input
+                                    type="checkbox"
+                                    checked={rejectCreateNewPlan}
+                                    onChange={(e) => setRejectCreateNewPlan(e.target.checked)}
+                                    className="rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                                />
+                                <span>Create a new plan from this feedback (send case back to planning)</span>
+                            </label>
+                        </div>
+                        <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3">
+                            <button
+                                onClick={() => !rejectSubmitting && setRejectTarget(null)}
+                                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                                disabled={rejectSubmitting}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleRejectConfirm}
+                                disabled={rejectSubmitting || !rejectReason.trim()}
+                                className="px-4 py-2 text-sm font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                            >
+                                {rejectSubmitting && <span className="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin" />}
+                                Confirm Reject
+                            </button>
                         </div>
                     </div>
                 </div>

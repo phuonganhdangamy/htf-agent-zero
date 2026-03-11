@@ -11,6 +11,8 @@ const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const STATUS_OPTIONS: { key: string; label: string }[] = [
   { key: 'open', label: 'Open' },
+  { key: 'replanning', label: 'Replanning' },
+  { key: 'replanning_after_execution', label: 'Revision (after send)' },
   { key: 'monitoring', label: 'Monitoring' },
   { key: 'closed', label: 'Closed' },
   { key: 'abandoned', label: 'Abandoned' },
@@ -30,7 +32,7 @@ export default function RiskCases() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [auditByCase, setAuditByCase] = useState<Record<string, any[]>>({});
   const [closingCaseId, setClosingCaseId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string[]>(['open']); // Default: only open cases
+  const [statusFilter, setStatusFilter] = useState<string[]>(['open', 'replanning', 'replanning_after_execution']); // Default: active cases
 
   const fetchCases = useCallback(async () => {
     setLoading(true);
@@ -269,10 +271,12 @@ export default function RiskCases() {
                         <span className={cn(
                           "px-2 py-0.5 rounded text-xs font-bold uppercase",
                           c.status === 'open' ? "bg-rose-100 text-rose-700" :
+                            c.status === 'replanning' ? "bg-purple-100 text-purple-700" :
+                            c.status === 'replanning_after_execution' ? "bg-amber-100 text-amber-800" :
                             c.status === 'monitoring' ? "bg-amber-100 text-amber-700" :
                             c.status === 'closed' ? "bg-slate-100 text-slate-600" : "bg-slate-100 text-slate-600"
                         )}>
-                          {c.status}
+                          {c.status === 'replanning_after_execution' ? 'Revision (after send)' : c.status}
                         </span>
                       </td>
                       <td className="px-4 py-3">

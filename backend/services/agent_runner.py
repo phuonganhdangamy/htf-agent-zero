@@ -546,9 +546,26 @@ async def rerun_plan_only(
         "actor": actor,
     })
 
-    # Mark current pending proposal as rejected
-    runs_res = supabase.table("action_runs").select("action_run_id").eq("case_id", case_id).execute()
+    # Mark current pending proposal as rejected; detect if any prior step was already executed (email sent or ERP commit)
+    runs_res = supabase.table("action_runs").select("action_run_id, steps").eq("case_id", case_id).execute()
     run_ids = [r["action_run_id"] for r in (runs_res.data or [])]
+    prior_was_executed = False
+    for r in (runs_res.data or []):
+        steps = r.get("steps") or []
+        if not isinstance(steps, list) or len(steps) < 7:
+            continue
+        # Step index 3 = CommitAgent (email), 6 = CommitAgent (ERP)
+        s3 = steps[3] if len(steps) > 3 else {}
+        s6 = steps[6] if len(steps) > 6 else {}
+        if (isinstance(s3, dict) and (s3.get("status") or "").upper() == "DONE") or (
+            isinstance(s6, dict) and (s6.get("status") or "").upper() == "DONE"
+        ):
+            prior_was_executed = True
+            break
+    if not prior_was_executed and run_ids:
+        sent_res = supabase.table("draft_artifacts").select("artifact_id").in_("action_run_id", run_ids).eq("type", "email").eq("status", "sent").limit(1).execute()
+        if sent_res.data:
+            prior_was_executed = True
     if run_ids:
         supabase.table("change_proposals").update({"status": "rejected", "approved_by": actor}).in_("action_run_id", run_ids).eq("status", "pending").execute()
 
@@ -610,6 +627,7 @@ Previous (rejected) plan:
         alternative_plans = [alternative_plans]
     alternative_plans.append(new_plan)
 
+    case_status = "replanning_after_execution" if prior_was_executed else "replanning"
     update_row = {
         "recommended_plan": json.dumps(new_plan) if isinstance(new_plan, dict) else new_plan,
         "reasoning_summary": new_reasoning,
@@ -619,19 +637,89 @@ Previous (rejected) plan:
         "alternative_plans": alternative_plans,
         "expected_cost": new_plan.get("expected_cost_usd") if isinstance(new_plan, dict) else None,
         "expected_loss_prevented": new_plan.get("expected_loss_prevented_usd") if isinstance(new_plan, dict) else None,
+        "status": case_status,
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
     supabase.table("risk_cases").update(update_row).eq("case_id", case_id).execute()
 
+    # --- New action_run + proposal for the alternative plan, with a fresh email draft attached ---
     action_run_id = f"RUN-{str(uuid.uuid4())[:8].upper()}"
     proposal_id = f"PROP-{str(uuid.uuid4())[:8].upper()}"
+    artifact_id = f"ART-{str(uuid.uuid4())[:8].upper()}"
     scores = row.get("scores") or {}
+
+    # Build a supplier-facing email draft: follow-up/correction if prior was already sent/executed, else replacement revision.
+    exposure = row.get("exposure") or {}
+    supplier_ids = exposure.get("suppliers") or []
+    to_email = f"procurement@{str(supplier_ids[0]).lower().replace('_', '-')}.com" if supplier_ids else "supplier@example.com"
+    headline_short = str(row.get("headline") or "")[:80]
+    if prior_was_executed:
+        subject = f"[FOLLOW-UP] Revised Mitigation Plan — {headline_short}"
+        intro = "We previously sent you a mitigation plan for this supply chain disruption. Based on updated assessment and your feedback, we are sending this revised plan as a follow-up."
+    else:
+        subject = f"[REVISION] Updated Mitigation Plan — {headline_short}"
+        intro = "We are writing to follow up on an identified supply chain disruption and to propose an updated mitigation plan."
+    actions_list = new_plan.get("actions") or [] if isinstance(new_plan, dict) else []
+    filtered_actions: list = []
+    for a in actions_list:
+        try:
+            lower = str(a).lower()
+        except Exception:
+            lower = ""
+        if any(phrase in lower for phrase in ["contact supplier", "notify supplier", "alert supplier"]):
+            continue
+        filtered_actions.append(a)
+    if not filtered_actions and actions_list:
+        filtered_actions = ["Please review the updated mitigation plan and proposed changes."]
+    actions_text = "\n".join(f"  • {a}" for a in filtered_actions) if filtered_actions else "  • See attached mitigation plan"
+    body = f"""Dear Supplier Partnership Team,
+
+{intro}
+
+Risk Assessment Summary:
+  Headline: {row.get('headline', '')}
+  Category: {row.get('risk_category', '')}
+  Risk Score: {scores.get('overall', 'N/A')}/100
+  Urgency: {scores.get('urgency', 'N/A')}/100
+
+Updated Recommended Mitigation Actions:
+{actions_text}
+
+We request your confirmation and alignment on the above. Please respond at your earliest convenience.
+
+Best regards,
+Omni Supply Chain Intelligence
+Omni Manufacturing — Procurement Operations"""
+
+    # Attach artifact_id to DraftingAgent step (index 1) so Actions UI can show "View Draft"
+    steps_with_artifact = [dict(s) for s in DEFAULT_ACTION_RUN_STEPS]
+    if len(steps_with_artifact) > 1:
+        steps_with_artifact[1]["artifact_id"] = artifact_id
+
     supabase.table("action_runs").insert({
         "action_run_id": action_run_id,
         "case_id": case_id,
         "status": "drafted",
-        "steps": DEFAULT_ACTION_RUN_STEPS,
+        "steps": steps_with_artifact,
     }).execute()
+
+    draft_structured = {
+        "to": to_email,
+        "subject": subject,
+        "body": body,
+    }
+    if prior_was_executed:
+        draft_structured["is_follow_up"] = True
+    draft_preview = f"TO: {to_email}\nSUBJECT: {subject}\n\n{body}"
+    supabase.table("draft_artifacts").insert({
+        "artifact_id": artifact_id,
+        "action_run_id": action_run_id,
+        "type": "email",
+        "preview": draft_preview,
+        "structured_payload": draft_structured,
+        "status": "draft",
+    }).execute()
+
     supabase.table("change_proposals").insert({
         "proposal_id": proposal_id,
         "action_run_id": action_run_id,
@@ -639,20 +727,28 @@ Previous (rejected) plan:
         "entity_type": "Procurement",
         "entity_id": new_plan.get("plan_id", "PLAN_B") if isinstance(new_plan, dict) else "PLAN_B",
         "diff": new_plan,
-        "risk": {"confidence": scores.get("confidence", 80), "financial_impact": new_plan.get("expected_cost_usd") if isinstance(new_plan, dict) else None},
+        "risk": {
+            "confidence": scores.get("confidence", 80),
+            "financial_impact": new_plan.get("expected_cost_usd") if isinstance(new_plan, dict) else None,
+        },
         "status": "pending",
     }).execute()
 
-    # Audit log for activity
+    # Audit log for activity (preserve auditability: prior_was_executed drives UI and follow-up labeling)
     supabase.table("audit_log").insert({
         "action_run_id": action_run_id,
         "case_id": case_id,
         "actor": actor,
         "event_type": "plan_rerun",
-        "payload": {"rejection_reason": rejection_reason, "feedback_text": feedback_text, "iteration": iteration_count + 1},
+        "payload": {
+            "rejection_reason": rejection_reason,
+            "feedback_text": feedback_text,
+            "iteration": iteration_count + 1,
+            "prior_was_executed": prior_was_executed,
+        },
     }).execute()
 
-    return {"status": "completed", "case_id": case_id, "iteration_count": iteration_count + 1}
+    return {"status": "completed", "case_id": case_id, "iteration_count": iteration_count + 1, "prior_was_executed": prior_was_executed}
 
 
 async def abandon_scenario(case_id: str, actor: str = "Administrator", reason: str = "") -> Dict[str, Any]:

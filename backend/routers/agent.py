@@ -29,6 +29,9 @@ class ApproveRequest(BaseModel):
     proposal_id: str
     approved_by: str
     decision: str  # "approve" | "reject"
+    # Optional HITL feedback when rejecting a proposal from the Actions UI.
+    reason: Optional[str] = None
+    create_new_plan: Optional[bool] = False
 
 class RerunRequest(BaseModel):
     case_id: str
@@ -116,20 +119,22 @@ def approve_action(request: ApproveRequest):
         if run_res.data:
             case_id = run_res.data[0].get("case_id")
 
+    # Persist feedback + (optional) replanning intent in audit trail
     supabase.table("audit_log").insert({
         "action_run_id": action_run_id,
         "case_id": case_id,
         "actor": request.approved_by,
         "event_type": f"proposal_{status}",
-        "payload": {"proposal_id": request.proposal_id, "decision": request.decision}
+        "payload": {
+            "proposal_id": request.proposal_id,
+            "decision": request.decision,
+            "reason": request.reason,
+            "create_new_plan": request.create_new_plan,
+        }
     }).execute()
 
-    # When user rejects the proposal, close the linked risk case (keep it for reference, but no longer "open")
-    if status == "rejected" and case_id:
-        supabase.table("risk_cases").update({
-            "status": "closed",
-            "updated_at": "now()"
-        }).eq("case_id", case_id).execute()
+    # IMPORTANT: Do NOT automatically close the risk case on rejection anymore.
+    # Rejection is feedback; case stays open unless explicitly abandoned/closed.
 
     return {"status": "success", "proposal": proposal}
 

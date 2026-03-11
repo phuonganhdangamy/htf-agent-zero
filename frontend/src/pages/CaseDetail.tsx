@@ -252,19 +252,35 @@ export default function CaseDetail() {
                         <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-semibold capitalize">
                             {riskCase.status}
                         </span>
-                        {riskCase.status === 'open' && (
-                            <button
-                                type="button"
-                                onClick={handleCloseCase}
-                                disabled={closing}
-                                className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
-                                title="Close this case (sets status to abandoned)"
-                            >
-                                <XCircle size={16} /> {closing ? 'Closing…' : 'Close case'}
-                            </button>
+                        {typeof riskCase.iteration_count === 'number' && riskCase.iteration_count > 0 && (
+                            <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold">
+                                Replanning requested · iteration {riskCase.iteration_count}
+                            </span>
                         )}
+                        {riskCase.status === 'replanning_after_execution' && (
+                            <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold">
+                                Revision after execution
+                            </span>
+                        )}
+                        {riskCase.status === 'open' && (
+                                <button
+                                    type="button"
+                                    onClick={handleCloseCase}
+                                    disabled={closing}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
+                                    title="Close this case (sets status to abandoned)"
+                                >
+                                    <XCircle size={16} /> {closing ? 'Closing…' : 'Close case'}
+                                </button>
+                            )}
                     </div>
                 </div>
+
+                {riskCase.status === 'replanning_after_execution' && (
+                    <div className="mt-4 p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-sm font-medium">
+                        An earlier communication for this case was already sent. The current plan is a follow-up revision, not a replacement.
+                    </div>
+                )}
 
                 <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div>
