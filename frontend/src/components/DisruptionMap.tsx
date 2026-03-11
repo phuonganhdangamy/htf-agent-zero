@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import { supabase } from '../lib/supabase';
+import { canonicalCountry } from '../lib/country';
 
 interface SignalEvent {
   event_id: string;
@@ -110,7 +111,7 @@ export default function DisruptionMap({ filter }: Props) {
           <Popup>
             <div className="text-xs space-y-1">
               <p className="font-semibold">{s.supplier_name}</p>
-              <p className="text-slate-500">{s.country}</p>
+              <p className="text-slate-500">{canonicalCountry(s.country)}</p>
               <p>Criticality: <span className="font-medium">{s.criticality_score}/100</span></p>
               {s.single_source && <p className="text-rose-600 font-semibold">⚠ Single-source supplier</p>}
             </div>
@@ -129,7 +130,7 @@ export default function DisruptionMap({ filter }: Props) {
           <Popup>
             <div className="text-xs space-y-1 max-w-[200px]">
               <p className="font-semibold leading-tight">{e.title}</p>
-              <p className="text-slate-500">{e.country} · {e.event_type}</p>
+              <p className="text-slate-500">{canonicalCountry(e.country)} · {e.event_type}</p>
               <p className="text-slate-600 leading-snug">{e.summary?.slice(0, 120)}{(e.summary?.length ?? 0) > 120 ? '…' : ''}</p>
               <p>Confidence: <span className="font-medium">{(e.confidence_score * 100).toFixed(0)}%</span></p>
             </div>
