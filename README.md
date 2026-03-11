@@ -30,7 +30,7 @@ Omni is an agentic AI system designed to monitor global supply chain disruptions
   - `POST /api/agent/approve` — Approve/reject change proposal and advance the action run
   - `POST /api/chat` — Chat with context (Supabase + optional Alpha Vantage commodity prices + Google Search grounding)
   - `POST /api/risk_cases` — Insert risk case; returns `{ case_id }`
-  - `POST /api/monitoring/scan` — On-demand perception scan; saves new `signal_events` and auto‑escalates high‑confidence ones
+  - `POST /api/monitoring/scan` — On-demand perception scan: **fetches from real APIs** — GDACS, ACLED, GDELT, WTO (by supplier countries); OpenWeather (weather at supplier regions/cities); Alpha Vantage (news for manufacturer sector, from materials/industry); FRED (macro: interest, inflation, GDP). LLM normalizes raw data into `signal_events` (no invented events). Saves and auto‑escalates high‑confidence ones.
 - **Startup / background jobs**:
   - Seeds `memory_patterns` with default Taiwan Strait pattern if missing
   - Starts a **background perception scheduler** that calls `run_perception_with_manager` every `PERCEPTION_INTERVAL_SECONDS` (default 900s) for `OMNI_COMPANY_ID` (default `ORG_DEMO`), skipping runs when recent perception data exists
@@ -42,7 +42,23 @@ Omni is an agentic AI system designed to monitor global supply chain disruptions
 ### Database (Supabase / PostgreSQL)
 
 - **Schema**: `/database/schema.sql` — `company_profiles`, `suppliers`, `facilities`, `inventory`, `purchase_orders`, `signal_events`, `risk_cases`, `action_runs`, `change_proposals`, `audit_log`, `memory_preferences`, `memory_patterns`, etc.
-- **Seed**: `/database/seed.sql` — Demo org, suppliers (e.g. SUPP_044 Taiwan), facilities, POs, inventory (4.2 days cover), memory_preferences
+- **Seed**: `/database/seed.sql` — Two customer profiles:
+  - **ORG_DEMO** — General electronics manufacturer (e.g. SUPP_044 Taiwan Semiconductor Corp), facilities in Germany, 7nm wafer / smartphone product.
+  - **ORG_TW_DEMO** — Taiwan-focused industrial electronics manufacturer; see **Customer profile** below.
+
+### Customer profile (Taiwan-focused demo)
+
+The **ORG_TW_DEMO** profile models a mid-market industrial electronics manufacturer ($150M revenue) whose critical supply runs through Taiwan. Use it for demos by setting `OMNI_COMPANY_ID=ORG_TW_DEMO` (backend) and `VITE_DEFAULT_COMPANY_ID=ORG_TW_DEMO` (frontend `.env`).
+
+| Entity | Details |
+|--------|--------|
+| **Company** | Industrial Electronics Manufacturing; products: Industrial Controllers, Edge Devices; risk appetite: medium. |
+| **Primary supplier** | **FormoChip Electronics** (SUPP_TW_001) — Taiwan, Kaohsiung; 7nm Control MCU Wafer + Underfill/Mold Compound; tier 1, single-source for key SKUs; 12-day lead time; backup option via Peninsula Semi. |
+| **Backup supplier** | **Peninsula Semi** (SUPP_MY_001) — Malaysia, Penang; same MCU wafer; higher cost, 16-day lead time; used for volume shift when Taiwan risk escalates. |
+| **Tier-2 supplier** | **Pacific Packaging Taichung** (SUPP_TW_002) — Taiwan, Taichung; Custom Molded Packaging Shell; 6-day lead time; shows indirect Taiwan exposure. |
+| **Facilities** | Assembly + DC in Germany (FAC_EU_TW_01, DC_EU_TW_01); product: Edge Control Unit Z7. |
+| **Routes** | Sea: Kaohsiung → Rotterdam; Air: Kaohsiung → Frankfurt; Taichung → Hamburg. |
+
 
 ### Risk case status and closing
 
@@ -67,7 +83,7 @@ python -m venv venv
 pip install -r requirements.txt
 python -m uvicorn backend.main:app --reload --port 8000
 ```
-Leave running. Optional: `GOOGLE_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (or `SUPABASE_ANON_KEY`), `ALPHA_VANTAGE_API_KEY` in `.env`.
+Leave running. Optional in `.env`: `GOOGLE_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (or `SUPABASE_ANON_KEY`), `ALPHA_VANTAGE_API_KEY`, `OMNI_COMPANY_ID` (default `ORG_DEMO`; use `ORG_TW_DEMO` for Taiwan profile).
 
 **Frontend (Terminal 2):**
 ```bash
@@ -76,6 +92,11 @@ npm install
 npm run dev
 ```
 Set `frontend/.env`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`. Optional: `VITE_API_URL=http://localhost:8000`.
+
+**Switching to the Taiwan customer profile (ORG_TW_DEMO)**  
+- Backend: set `OMNI_COMPANY_ID=ORG_TW_DEMO` in `.env` (perception scheduler and startup monitoring use this).  
+- Frontend: set `VITE_DEFAULT_COMPANY_ID=ORG_TW_DEMO` in `frontend/.env` so Dashboard, Configuration, Live Simulation, and Chat use that org.  
+- Ensure the Taiwan profile is seeded in Supabase (run the second part of `database/seed.sql` or use the data you added manually).
 
 ---
 

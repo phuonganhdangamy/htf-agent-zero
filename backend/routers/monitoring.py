@@ -9,14 +9,18 @@ from backend.services.monitoring_service import check_and_alert
 router = APIRouter()
 
 
+def _default_company_id() -> str:
+    return os.environ.get("OMNI_COMPANY_ID", "ORG_DEMO")
+
+
 @router.post("/check")
-def run_monitoring_check(company_id: Optional[str] = "ORG_DEMO"):
+def run_monitoring_check(company_id: Optional[str] = None):
     """Manually trigger a monitoring check. Returns alerts created."""
-    return check_and_alert(company_id=company_id)
+    return check_and_alert(company_id=company_id or _default_company_id())
 
 
 @router.post("/scan")
-async def trigger_perception_scan(company_id: Optional[str] = "ORG_DEMO"):
+async def trigger_perception_scan(company_id: Optional[str] = None):
     """
     Run an on-demand Gemini-powered perception scan for the company's supplier regions.
     Saves new signal events, then auto-escalates high-confidence ones based on notification_threshold.
@@ -24,10 +28,11 @@ async def trigger_perception_scan(company_id: Optional[str] = "ORG_DEMO"):
     from backend.services.perception_service import run_perception_scan
     from backend.services.escalation_service import auto_escalate_signals
 
-    scan_result = await run_perception_scan(company_id=company_id)
+    cid = company_id or _default_company_id()
+    scan_result = await run_perception_scan(company_id=cid)
     new_events = scan_result.get("new_signal_events", [])
 
-    escalated = await auto_escalate_signals(new_events, company_id=company_id)
+    escalated = await auto_escalate_signals(new_events, company_id=cid)
 
     return {
         "scanned": True,

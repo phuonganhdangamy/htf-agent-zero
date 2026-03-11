@@ -3,15 +3,18 @@ Periodic risk monitoring service.
 Checks for deteriorating conditions and inserts alerts into the alerts table.
 Supabase Realtime broadcasts these to subscribed frontends automatically.
 """
-from typing import Dict, Any
+import os
+from typing import Dict, Any, Optional
 from backend.services.supabase_client import supabase
 
 
-def check_and_alert(company_id: str = "ORG_DEMO") -> Dict[str, Any]:
+def check_and_alert(company_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Run all monitoring checks and insert new alerts for any issues found.
     Returns a summary of checks performed and alerts created.
     """
+    if company_id is None:
+        company_id = os.environ.get("OMNI_COMPANY_ID", "ORG_DEMO")
     alerts_created = 0
 
     # Fetch company's notification_threshold (default 60)

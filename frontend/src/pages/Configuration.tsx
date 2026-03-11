@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { ChevronDown, ChevronRight, Plus, Save } from 'lucide-react';
-
-const DEFAULT_COMPANY_ID = 'ORG_DEMO';
+import { DEFAULT_COMPANY_ID } from '../lib/config';
 
 interface MemoryPreferences {
   id?: string;

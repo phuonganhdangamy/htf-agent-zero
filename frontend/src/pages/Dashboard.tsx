@@ -15,11 +15,11 @@ import {
 import axios from 'axios';
 import { supabase } from '../lib/supabase';
 import { cn } from '../lib/utils';
+import { DEFAULT_COMPANY_ID } from '../lib/config';
 
 const DisruptionMap = lazy(() => import('../components/DisruptionMap'));
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
-const DEFAULT_COMPANY_ID = 'ORG_DEMO';
 
 type MapFilter = 'all' | 'Conflict' | 'Weather' | 'Economic';
 
