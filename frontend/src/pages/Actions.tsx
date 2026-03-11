@@ -19,16 +19,16 @@ export interface ActionStep {
     description?: string;
 }
 
+// Fallback only — action_runs.steps should always come from the backend now
 const DEFAULT_STEPS: ActionStep[] = [
-    { step: 1, name: 'ExposureAgent', status: 'DONE', description: 'validated — Taiwan Semiconductor Corp exposed, 7nm Wafer 4.2d cover' },
+    { step: 1, name: 'ExposureAgent', status: 'DONE', description: 'validated exposure' },
     { step: 2, name: 'DraftingAgent', status: 'DONE', description: 'supplier outreach email drafted' },
     { step: 3, name: 'ApprovalAgent', status: 'PENDING', description: 'awaiting human sign-off on email' },
-    { step: 4, name: 'CommitAgent', status: 'LOCKED', description: 'send email to Taiwan Semiconductor Corp' },
-    { step: 5, name: 'ChangeProposalAgent', status: 'LOCKED', description: 'propose PO 8821 (7nm Wafer) ETA change ocean→air' },
-    { step: 6, name: 'ApprovalAgent', status: 'LOCKED', description: 'awaiting approval for ERP write' },
-    { step: 7, name: 'CommitAgent', status: 'LOCKED', description: 'write to ERP' },
-    { step: 8, name: 'VerificationAgent', status: 'LOCKED', description: 'confirm ERP updated' },
-    { step: 9, name: 'AuditAgent', status: 'LOCKED', description: 'write audit record' },
+    { step: 4, name: 'CommitAgent', status: 'LOCKED', description: 'send email to supplier' },
+    { step: 5, name: 'ApprovalAgent', status: 'LOCKED', description: 'awaiting approval for ERP write' },
+    { step: 6, name: 'CommitAgent', status: 'LOCKED', description: 'write to ERP' },
+    { step: 7, name: 'VerificationAgent', status: 'LOCKED', description: 'confirm ERP updated' },
+    { step: 8, name: 'AuditAgent', status: 'LOCKED', description: 'write audit record' },
 ];
 
 interface DraftArtifact {

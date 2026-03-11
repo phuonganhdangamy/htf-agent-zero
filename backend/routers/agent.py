@@ -1,4 +1,5 @@
-from fastapi import APIRouter, HTTPException, Depends
+import asyncio
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any, List
 from backend.services.supabase_client import supabase
@@ -52,6 +53,17 @@ class AbandonRequest(BaseModel):
     actor: Optional[str] = "Administrator"
     reason: Optional[str] = None
 
+def _run_pipeline_in_thread(company_id: str, trigger: str, context: dict):
+    """Run the async pipeline in a dedicated thread with its own event loop."""
+    loop = asyncio.new_event_loop()
+    try:
+        loop.run_until_complete(run_pipeline(company_id, trigger, context))
+    except Exception as e:
+        print(f"[agent/run background] pipeline error: {e}")
+    finally:
+        loop.close()
+
+
 @router.post("/run")
 async def run_agent(request: RunRequest):
     context = request.context or {}
@@ -77,8 +89,16 @@ async def run_agent(request: RunRequest):
         context["flagged_regions"] = request.flagged_regions
     if request.directives is not None:
         context["directives"] = request.directives
-    result = await run_pipeline(request.company_id, request.trigger, context)
-    return result
+    # Run pipeline in a real background thread so it doesn't block the event loop.
+    # This keeps the server responsive for polling and other requests.
+    import threading
+    t = threading.Thread(
+        target=_run_pipeline_in_thread,
+        args=(request.company_id, request.trigger, context),
+        daemon=True,
+    )
+    t.start()
+    return {"status": "started", "message": "Pipeline running in background"}
 
 @router.get("/cases")
 def get_cases(status: Optional[str] = None, limit: int = 10, order: str = "created_at.desc"):

@@ -6,18 +6,79 @@ import uuid
 from typing import Dict, Any, Optional, List
 from backend.services.supabase_client import supabase
 
-# Action layer step template: descriptions use meaningful names (supplier/material) for users; codes stay in data.
+# Fallback action step template (used only when execution_steps is empty/missing).
 DEFAULT_ACTION_RUN_STEPS = [
-    {"step": 1, "name": "ExposureAgent", "status": "DONE", "description": "validated — Taiwan Semiconductor Corp exposed, 7nm Wafer 4.2d cover"},
+    {"step": 1, "name": "ExposureAgent", "status": "DONE", "description": "validated exposure"},
     {"step": 2, "name": "DraftingAgent", "status": "DONE", "description": "supplier outreach email drafted"},
     {"step": 3, "name": "ApprovalAgent", "status": "PENDING", "description": "awaiting human sign-off on email"},
-    {"step": 4, "name": "CommitAgent", "status": "LOCKED", "description": "send email to Taiwan Semiconductor Corp"},
-    {"step": 5, "name": "ChangeProposalAgent", "status": "LOCKED", "description": "propose PO 8821 (7nm Wafer) ETA change ocean→air"},
+    {"step": 4, "name": "CommitAgent", "status": "LOCKED", "description": "send email to supplier"},
+    {"step": 5, "name": "ChangeProposalAgent", "status": "LOCKED", "description": "propose ERP changes"},
     {"step": 6, "name": "ApprovalAgent", "status": "LOCKED", "description": "awaiting approval for ERP write"},
     {"step": 7, "name": "CommitAgent", "status": "LOCKED", "description": "write to ERP"},
     {"step": 8, "name": "VerificationAgent", "status": "LOCKED", "description": "confirm ERP updated"},
     {"step": 9, "name": "AuditAgent", "status": "LOCKED", "description": "write audit record"},
 ]
+
+
+def build_action_run_steps(
+    execution_steps: Optional[List[str]] = None,
+    exposure: Optional[Dict[str, Any]] = None,
+    headline: str = "",
+) -> List[Dict[str, Any]]:
+    """Build action_run steps dynamically from risk case execution_steps.
+
+    Uses the execution_steps strings from the Gemini-generated risk case
+    to populate step descriptions, keeping the fixed agent workflow structure.
+    Falls back to DEFAULT_ACTION_RUN_STEPS when execution_steps is empty.
+    """
+    if not execution_steps:
+        return [dict(s) for s in DEFAULT_ACTION_RUN_STEPS]
+
+    # Filter out internal planner noise (e.g. "[PlanGenerator] Rerunning...")
+    real_steps = [s for s in execution_steps if not s.startswith("[")]
+    if not real_steps:
+        return [dict(s) for s in DEFAULT_ACTION_RUN_STEPS]
+
+    # Extract supplier/material info from exposure for the fixed workflow steps
+    exp = exposure or {}
+    suppliers = exp.get("suppliers") or []
+    skus = exp.get("skus") or []
+    pos = exp.get("pos_at_risk") or []
+    days_cover = exp.get("inventory_days_cover", "N/A")
+
+    supplier_str = suppliers[0] if suppliers else "supplier"
+    sku_str = skus[0] if skus else "material"
+    po_str = pos[0] if isinstance(pos, list) and pos else ""
+
+    # Build the exposure description from headline or exposure data
+    exposure_desc = headline[:120] if headline else f"{supplier_str} exposed, {sku_str} {days_cover}d cover"
+
+    # First: fixed workflow steps (ExposureAgent, DraftingAgent, ApprovalAgent)
+    steps: List[Dict[str, Any]] = [
+        {"step": 1, "name": "ExposureAgent", "status": "DONE", "description": f"validated — {exposure_desc}"},
+        {"step": 2, "name": "DraftingAgent", "status": "DONE", "description": "supplier outreach email drafted"},
+        {"step": 3, "name": "ApprovalAgent", "status": "PENDING", "description": "awaiting human sign-off on email"},
+        {"step": 4, "name": "CommitAgent", "status": "LOCKED", "description": f"send email to {supplier_str}"},
+    ]
+
+    # Middle: one step per execution_step from the risk case
+    step_num = 5
+    for exec_step in real_steps:
+        # Truncate long descriptions for UI readability
+        desc = exec_step[:200] if len(exec_step) > 200 else exec_step
+        steps.append({"step": step_num, "name": "ExecutionAgent", "status": "LOCKED", "description": desc})
+        step_num += 1
+
+    # End: fixed closing steps
+    steps.append({"step": step_num, "name": "ApprovalAgent", "status": "LOCKED", "description": "awaiting approval for ERP write"})
+    step_num += 1
+    steps.append({"step": step_num, "name": "CommitAgent", "status": "LOCKED", "description": "write to ERP"})
+    step_num += 1
+    steps.append({"step": step_num, "name": "VerificationAgent", "status": "LOCKED", "description": "confirm ERP updated"})
+    step_num += 1
+    steps.append({"step": step_num, "name": "AuditAgent", "status": "LOCKED", "description": "write audit record"})
+
+    return steps
 
 # Lazy Gemini client
 _gemini_client = None
@@ -400,9 +461,15 @@ Best regards,
 Omni Supply Chain Intelligence
 Omni Manufacturing — Procurement Operations"""
 
+    # Build steps dynamically from execution_steps instead of hardcoded default
+    steps_with_artifact = build_action_run_steps(
+        execution_steps=payload.get("execution_steps"),
+        exposure=payload.get("exposure"),
+        headline=payload.get("headline", ""),
+    )
     # Attach artifact_id to DraftingAgent step (index 1)
-    steps_with_artifact = [dict(s) for s in DEFAULT_ACTION_RUN_STEPS]
-    steps_with_artifact[1]["artifact_id"] = artifact_id
+    if len(steps_with_artifact) > 1:
+        steps_with_artifact[1]["artifact_id"] = artifact_id
 
     # Insert action_run FIRST (draft_artifacts has FK on action_run_id)
     supabase.table("action_runs").insert({
@@ -691,8 +758,13 @@ Best regards,
 Omni Supply Chain Intelligence
 Omni Manufacturing — Procurement Operations"""
 
+    # Build steps dynamically from the new execution_steps
+    steps_with_artifact = build_action_run_steps(
+        execution_steps=new_steps,
+        exposure=exposure,
+        headline=str(row.get("headline", "")),
+    )
     # Attach artifact_id to DraftingAgent step (index 1) so Actions UI can show "View Draft"
-    steps_with_artifact = [dict(s) for s in DEFAULT_ACTION_RUN_STEPS]
     if len(steps_with_artifact) > 1:
         steps_with_artifact[1]["artifact_id"] = artifact_id
 

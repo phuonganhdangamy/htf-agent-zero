@@ -172,7 +172,7 @@ async def chat(request: ChatRequest):
         client = get_gemini_client()
         from google.genai import types
 
-        model_name = "gemini-2.0-flash"
+        model_name = "gemini-2.5-flash"
         config_kwargs = {}
         try:
             grounding_tool = types.Tool(google_search=types.GoogleSearch())
@@ -183,21 +183,11 @@ async def chat(request: ChatRequest):
         config = types.GenerateContentConfig(**config_kwargs) if config_kwargs else None
         contents = f"{system_prompt}\n\nUser question: {user_message}"
 
-        try:
-            response = client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=config,
-            )
-        except Exception as e1:
-            if "not found" in str(e1).lower() or "404" in str(e1):
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash",
-                    contents=contents,
-                    config=config,
-                )
-            else:
-                raise
+        response = client.models.generate_content(
+            model=model_name,
+            contents=contents,
+            config=config,
+        )
 
         text = response.text if hasattr(response, "text") else (response.candidates[0].content.parts[0].text if response.candidates else "")
         return {"response": text or "No response generated."}
@@ -224,7 +214,7 @@ async def chat_stream(request: ChatRequest):
     client = get_gemini_client()
     from google.genai import types
 
-    model_name = "gemini-2.0-flash"
+    model_name = "gemini-2.5-flash"
     config_kwargs = {}
     try:
         grounding_tool = types.Tool(google_search=types.GoogleSearch())

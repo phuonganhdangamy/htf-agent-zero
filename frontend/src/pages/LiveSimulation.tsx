@@ -138,7 +138,7 @@ export default function LiveSimulation() {
     const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const logEndRef = useRef<HTMLDivElement>(null);
     const POLL_INTERVAL_MS = 2000;
-    const RUN_TIMEOUT_MS = 90000;
+    const RUN_TIMEOUT_MS = 180000;
 
     useEffect(() => {
         logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
