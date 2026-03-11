@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Bot, Send, Sparkles } from 'lucide-react';
 import axios from 'axios';
+import { DEFAULT_COMPANY_ID } from '../lib/config';
 
 export default function OmniAgentPanel() {
     const [messages, setMessages] = useState<{ role: 'user' | 'agent', content: string }[]>([
@@ -22,7 +23,7 @@ export default function OmniAgentPanel() {
         try {
             const response = await axios.post(`${apiBase}/api/chat`, {
                 message: userMsg,
-                org_id: 'ORG_DEMO'
+                org_id: DEFAULT_COMPANY_ID
             });
             setMessages(prev => [...prev, {
                 role: 'agent',

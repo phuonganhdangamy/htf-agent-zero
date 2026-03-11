@@ -16,10 +16,10 @@ import {
 import { motion } from 'motion/react';
 import { supabase } from '../lib/supabase';
 import axios from 'axios';
+import { DEFAULT_COMPANY_ID } from '../lib/config';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000';
-const DEFAULT_COMPANY_ID = 'ORG_DEMO';
-const DEFAULT_SCENARIO = `Large order incoming: 50,000 units Premium Smartphone Model X for Q3 delivery. Single-source dependency on Taiwan Semiconductor Corp (Kaohsiung) for 7nm Silicon Wafer. Current 7nm Wafer inventory at 4.2 days cover; Organic Substrate and EUV Photoresist also in play. Assess risk and recommend procurement strategy.`;
+const DEFAULT_SCENARIO = `Large order incoming: 50,000 units Edge Control Unit Z7 for Q3 delivery. Primary dependency on FormoChip Electronics (Kaohsiung, Taiwan) for 7nm Control MCU Wafer; backup supplier Peninsula Semi (Penang). Current MCU inventory at 7.2 days cover. Assess risk and recommend procurement strategy.`;
 
 const ORDER_VOLUME_OPTIONS = [
     { value: 'routine', label: 'Routine reorder (< 10,000 units)' },

@@ -38,10 +38,11 @@ def seed_memory_patterns():
 async def lifespan(app: FastAPI):
     seed_memory_patterns()
 
-    # Run initial monitoring check on startup
+    # Run initial monitoring check on startup (uses OMNI_COMPANY_ID)
     try:
         from backend.services.monitoring_service import check_and_alert
-        result = check_and_alert()
+        company_id = os.environ.get("OMNI_COMPANY_ID", "ORG_DEMO")
+        result = check_and_alert(company_id=company_id)
         print(f"[startup] monitoring check: {result}")
     except Exception as e:
         print(f"[startup] monitoring check failed: {e}")
