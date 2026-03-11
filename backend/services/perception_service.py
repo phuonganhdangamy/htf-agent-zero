@@ -15,6 +15,40 @@ from typing import Any, Dict, List, Optional
 from backend.services.supabase_client import supabase
 from backend.services.signal_event_utils import ensure_start_date
 
+# Canonical country names for events feed (avoids "United States" vs "USA" vs "US" inconsistency)
+_COUNTRY_CANONICAL = {
+    "us": "United States",
+    "usa": "United States",
+    "u.s.": "United States",
+    "u.s.a.": "United States",
+    "united states": "United States",
+    "uk": "United Kingdom",
+    "u.k.": "United Kingdom",
+    "united kingdom": "United Kingdom",
+    "great britain": "United Kingdom",
+    "south korea": "South Korea",
+    "korea": "South Korea",
+    "republic of korea": "South Korea",
+    "taiwan": "Taiwan",
+    "malaysia": "Malaysia",
+    "japan": "Japan",
+    "china": "China",
+    "germany": "Germany",
+    "france": "France",
+    "netherlands": "Netherlands",
+    "india": "India",
+    "mexico": "Mexico",
+    "canada": "Canada",
+}
+
+
+def _canonical_country(name: Optional[str]) -> str:
+    """Normalize country name to a single canonical form for display/filtering."""
+    if not name or not isinstance(name, str):
+        return name or ""
+    key = name.strip().lower()
+    return _COUNTRY_CANONICAL.get(key, name.strip())
+
 
 def _get_gemini_client():
     api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("backend_API_KEY", "")
@@ -43,6 +77,9 @@ def _save_events_direct(events: List[Dict[str, Any]]) -> int:
         # Strip fields not in schema
         for field in ["company_exposed", "severity_score", "risk_score"]:
             ev.pop(field, None)
+        # Normalize country to canonical name (e.g. USA/US -> United States)
+        if ev.get("country"):
+            ev["country"] = _canonical_country(ev["country"])
         ensure_start_date(ev)
         try:
             supabase.table("signal_events").insert(ev).execute()
@@ -283,14 +320,17 @@ Return ONLY a valid JSON array. Each element: event_id ("EVT_" + 8 alphanumeric)
             response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
             raw = (response.text or "").strip()
 
-    # 4. Parse JSON
+    # 4. Parse JSON (sanitize: LLM sometimes emits literal newlines/control chars inside strings, which is invalid JSON)
     events: List[Dict[str, Any]] = []
     try:
         if raw.startswith("```"):
             raw = raw.split("```")[1]
             if raw.startswith("json"):
                 raw = raw[4:]
-        events = json.loads(raw.strip())
+        raw = raw.strip()
+        # Replace ASCII control characters (e.g. literal newline in "summary") with space so json.loads succeeds
+        raw = "".join(c if ord(c) >= 32 else " " for c in raw)
+        events = json.loads(raw)
         if not isinstance(events, list):
             events = []
     except Exception as e:

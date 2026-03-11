@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '../lib/supabase';
+import { canonicalCountry } from '../lib/country';
 import type { DisruptionEvent } from '../types';
 import { Globe, Activity, Search } from 'lucide-react';
 import { format } from 'date-fns';
@@ -37,7 +38,7 @@ export default function EventsFeed() {
         return events.filter((ev: any) => {
             const eventId = (ev.event_id ?? '').toString().toLowerCase();
             const eventType = (ev.event_type ?? '').toString().toLowerCase();
-            const country = (ev.country ?? '').toString().toLowerCase();
+            const country = (canonicalCountry(ev.country) || (ev.country ?? '')).toString().toLowerCase();
             const subtype = (ev.subtype ?? '').toString().toLowerCase();
             const title = (ev.title ?? '').toString().toLowerCase();
             const summary = (ev.summary ?? '').toString().toLowerCase();
@@ -116,7 +117,7 @@ export default function EventsFeed() {
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-1.5 text-slate-600">
                                             <Globe size={14} className="opacity-70" />
-                                            {ev.country || '—'}
+                                            {canonicalCountry(ev.country) || '—'}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-slate-600">{ev.subtype || '—'}</td>
