@@ -277,6 +277,7 @@ RULES:
 - Include ONLY events that actually appear in the raw data below. Do NOT invent or generate events.
 - For each relevant disruption or risk signal in the raw data, output one object. Weather extremes (storms, floods), macro shocks (rate moves, inflation), and sector news that could affect supply/demand all count. If the raw data has no relevant supply-chain disruptions, return [].
 - Preserve the source of each event (e.g. GDACS, ACLED, OpenWeather, Alpha Vantage, FRED) in signal_sources. Use evidence_links from the raw data when URLs are provided.
+- When the event's country and/or region or city are known from the raw data, you MUST geolocate the event and provide approximate latitude/longitude for the main affected location. Only use null for lat/lon when the location is genuinely unknown.
 
 Schema for each object (all required):
 - event_id: string, "EVT_" + 8 random alphanumeric chars (unique per event)
@@ -286,7 +287,7 @@ Schema for each object (all required):
 - summary: 2-3 sentences explaining the disruption and supply chain impact
 - country: affected country name (from raw data)
 - region: specific region/city if present, else ""
-- lat: float or null, lon: float or null
+- lat: float or null, lon: float or null (approximate coordinates for the event's main affected location when country/region/city are known; null only if location cannot be inferred)
 - confidence_score: 0.0-1.0 (infer from source reliability)
 - tone: -1.0 to 1.0 (negative to positive)
 - risk_category: "Supply Chain Disruption", "Geopolitical Conflict", "Natural Disaster", or "Economic Event"
@@ -315,6 +316,7 @@ RAW DATA FROM APIs:
             prompt = f"""You are a supply chain disruption intelligence analyst. Today is {today}.
 The company monitors: {', '.join(countries)}.{region_note}
 Generate 2 to 4 realistic, current supply chain disruption signal events affecting those regions. Use only event types Conflict, Weather, Economic, Trade, Logistics.
+When the country and/or region or city are known or can be inferred for an event, you MUST geolocate it and provide approximate latitude/longitude for the main affected location; use null only if you truly cannot infer a location.
 Return ONLY a valid JSON array. Each element: event_id ("EVT_" + 8 alphanumeric), event_type, subtype, title, summary, country, region, lat (float or null), lon (float or null), confidence_score (0-1), tone (-1 to 1), risk_category, evidence_links [], signal_sources [], forecasted (bool), start_date (ISO). No other text."""
             client = _get_gemini_client()
             response = client.models.generate_content(model="gemini-2.5-flash", contents=prompt)
