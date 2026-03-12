@@ -128,7 +128,15 @@ export default function RiskCases() {
   };
 
   /** Parse recommended_plan (may be JSON string or object). */
-  const getRecommendedPlan = (c: RiskCaseRow): { name?: string; actions?: string[]; expected_cost_usd?: number; expected_loss_prevented_usd?: number; expected_delay_days?: number; service_level?: number } | null => {
+  const getRecommendedPlan = (c: RiskCaseRow): {
+    plan_id?: string;
+    name?: string;
+    actions?: string[];
+    expected_cost_usd?: number;
+    expected_loss_prevented_usd?: number;
+    expected_delay_days?: number;
+    service_level?: number;
+  } | null => {
     const r = c.recommended_plan;
     if (r == null) return null;
     if (typeof r === 'object') return r as any;
@@ -400,7 +408,7 @@ export default function RiskCases() {
                                 </ul>
                               )}
                             </div>
-                            {c.status === 'open' && (
+                            {(c.status === 'open' || c.status === 'replanning') && (
                               <div className="md:col-span-2 pt-2 border-t border-slate-200">
                                 <button
                                   type="button"
