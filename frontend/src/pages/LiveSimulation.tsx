@@ -81,6 +81,7 @@ interface RiskCaseRow {
     case_id: string;
     headline: string;
     status: string;
+    created_at?: string;
     scores?: { likelihood?: number; impact?: number; urgency?: number; overall_risk?: number; overall?: number; probability?: number };
     hypotheses?: Array<{ title?: string; description?: string }> | { chain?: string[]; likelihood?: number; unknowns?: string[] };
     recommended_plan?: string | RecommendedPlan;
@@ -137,6 +138,8 @@ export default function LiveSimulation() {
     const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const logEndRef = useRef<HTMLDivElement>(null);
+    /** When the current Run Cycle started (ms). Poll ignores open cases created before this so we don't show a previous run's plan. */
+    const runStartedAtRef = useRef<number>(0);
     const POLL_INTERVAL_MS = 2000;
     const RUN_TIMEOUT_MS = 180000;
 
@@ -235,10 +238,13 @@ export default function LiveSimulation() {
     }, [persistDirectives]);
 
     const runCycle = async () => {
+        runStartedAtRef.current = Date.now();
         setIsSimulating(true);
         setExecutionLog([]);
         setLatestCase(null);
         setPendingProposal(null);
+        setMaxIterationsReached(false);
+        setShowRejectionPanel(false);
         setExecutionLog(prev => [...prev, '[System] Starting agent pipeline...']);
         const severityMap = { routine: 50, large: 65, critical: 80, emergency: 100 };
         const urgencyMap = { flexible: 30, standard: 50, tight: 75, critical: 95 };
@@ -284,6 +290,10 @@ export default function LiveSimulation() {
             const cases = Array.isArray(data) ? data : [];
             const c = cases[0] as RiskCaseRow | undefined;
             if (c) {
+                const runStartedAt = runStartedAtRef.current;
+                const caseCreatedAt = c.created_at ? new Date((c as any).created_at).getTime() : 0;
+                const isFromThisRun = runStartedAt === 0 || caseCreatedAt >= runStartedAt - 2000;
+                if (!isFromThisRun) return;
                 setLatestCase(c);
                 const steps = c.execution_steps || [];
                 const stepLines = steps.map((s: ExecutionStep | string) =>
