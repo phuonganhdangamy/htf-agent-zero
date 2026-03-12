@@ -647,22 +647,38 @@ export default function LiveSimulation() {
                                 })()}
                                 {(() => {
                                     const iters = latestCase.plan_iterations || [];
-                                    if (iters.length === 0) return null;
+                                    const hasIterations = iters.length > 0;
+                                    const showHistory = hasIterations || latestCase.recommended_plan;
+                                    if (!showHistory) return null;
+                                    const renderPlanDetails = (plan: RecommendedPlan) => (
+                                        <>
+                                            <p className="font-medium text-slate-800">{plan.name ?? 'Plan'}</p>
+                                            {plan.actions?.length ? <ul className="list-disc list-inside mt-1 text-slate-600">{plan.actions.map((a: string, i: number) => <li key={i}>{a}</li>)}</ul> : null}
+                                            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-slate-500">
+                                                {plan.expected_cost_usd != null && <span>Cost: ${Number(plan.expected_cost_usd).toLocaleString()}</span>}
+                                                {plan.expected_loss_prevented_usd != null && <span>Loss prevented: ${Number(plan.expected_loss_prevented_usd).toLocaleString()}</span>}
+                                                {plan.expected_delay_days != null && <span>Delay: {plan.expected_delay_days} days</span>}
+                                                {plan.service_level != null && <span>Service level: {(Number(plan.service_level) * 100).toFixed(0)}%</span>}
+                                            </div>
+                                        </>
+                                    );
                                     return (
                                         <div className="space-y-2">
-                                            <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Iteration history</h4>
+                                            <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Iteration history (compare across runs)</h4>
                                             {iters.map((entry, idx) => {
                                                 const plan = entry.plan && typeof entry.plan === 'object' ? entry.plan as RecommendedPlan : {};
                                                 const name = plan.name ?? 'Plan';
                                                 const cost = plan.expected_cost_usd;
+                                                const isLastRejected = idx === iters.length - 1;
                                                 return (
-                                                    <details key={idx} className="border border-slate-200 rounded-lg bg-slate-50 overflow-hidden" open={false}>
+                                                    <details key={idx} className="border border-slate-200 rounded-lg bg-slate-50 overflow-hidden" open={isLastRejected}>
                                                         <summary className="px-3 py-2 cursor-pointer font-medium text-sm text-slate-700 list-none flex items-center justify-between gap-2">
-                                                            <span>— Iteration {idx + 1} (REJECTED)</span>
+                                                            <span>Iteration {idx + 1} — {name}{cost != null ? ` ($${Number(cost).toLocaleString()})` : ''} — REJECTED</span>
+                                                            {entry.timestamp && <span className="text-xs text-slate-400">{new Date(entry.timestamp).toLocaleString()}</span>}
                                                         </summary>
-                                                        <div className="px-3 pb-3 pt-0 text-sm text-slate-600 border-t border-slate-200">
-                                                            <p className="font-medium text-slate-800">{name}{cost != null ? ` — $${Number(cost).toLocaleString()}` : ''}</p>
-                                                            <p className="text-xs text-rose-600 mt-1">Rejected by {entry.actor || 'User'} — &quot;{entry.rejected_reason ?? 'No reason given'}&quot;</p>
+                                                        <div className="px-3 pb-3 pt-0 text-sm text-slate-600 border-t border-slate-200 space-y-2">
+                                                            {renderPlanDetails(plan)}
+                                                            <p className="text-xs text-rose-600 pt-1 border-t border-slate-100">Rejected by {entry.actor || 'User'} — &quot;{entry.rejected_reason ?? 'No reason given'}&quot;</p>
                                                         </div>
                                                     </details>
                                                 );
@@ -670,37 +686,18 @@ export default function LiveSimulation() {
                                             {latestCase.recommended_plan && (
                                                 <details className="border border-amber-200 rounded-lg bg-amber-50/50 overflow-hidden" open>
                                                     <summary className="px-3 py-2 cursor-pointer font-medium text-sm text-slate-700 list-none">
-                                                        — Iteration {(iters.length || 0) + 1} (PENDING APPROVAL)
+                                                        Iteration {(iters.length || 0) + 1} — PENDING APPROVAL
                                                     </summary>
                                                     <div className="px-3 pb-3 pt-0 text-sm border-t border-amber-200">
                                                         {(() => {
                                                             const rp = typeof latestCase.recommended_plan === 'string'
                                                                 ? (() => { try { return latestCase.recommended_plan!.startsWith('{') ? JSON.parse(latestCase.recommended_plan as string) : { name: latestCase.recommended_plan }; } catch { return { name: latestCase.recommended_plan }; } })()
                                                                 : (latestCase.recommended_plan as RecommendedPlan);
-                                                            return (
-                                                                <>
-                                                                    <p className="font-medium text-slate-800">{rp.name ?? '—'}</p>
-                                                                    {rp.actions?.length ? <ul className="list-disc list-inside mt-1 text-slate-600">{rp.actions.map((a: string, i: number) => <li key={i}>{a}</li>)}</ul> : null}
-                                                                </>
-                                                            );
+                                                            return renderPlanDetails(rp as RecommendedPlan);
                                                         })()}
                                                     </div>
                                                 </details>
                                             )}
-                                        </div>
-                                    );
-                                })()}
-                                {latestCase.recommended_plan && !(latestCase.plan_iterations?.length) && (() => {
-                                    const rp = typeof latestCase.recommended_plan === 'string'
-                                        ? (() => { try { return latestCase.recommended_plan!.startsWith('{') ? JSON.parse(latestCase.recommended_plan as string) : { name: latestCase.recommended_plan }; } catch { return { name: latestCase.recommended_plan }; } })()
-                                        : (latestCase.recommended_plan as RecommendedPlan);
-                                    return (
-                                        <div>
-                                            <h4 className="text-xs font-bold text-slate-500 uppercase mb-2">Recommended plan</h4>
-                                            <p className="text-sm text-slate-700 font-medium">{rp.name ?? '—'}</p>
-                                            {rp.actions?.length ? (
-                                                <ul className="list-disc list-inside mt-1 text-sm text-slate-600">{rp.actions.map((a, i) => <li key={i}>{a}</li>)}</ul>
-                                            ) : null}
                                         </div>
                                     );
                                 })()}
