@@ -239,40 +239,40 @@ export default function CaseDetail() {
                         <h1 className="text-2xl font-bold text-slate-900">{riskCase.headline}</h1>
                         <p className="text-slate-500 mt-1">Case ID: {riskCase.case_id} • Category: {riskCase.risk_category}</p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                         {(() => {
                             const s = riskCase.scores || {};
                             const score = typeof s.overall_risk === 'number' ? s.overall_risk : typeof s.overall === 'number' ? s.overall : null;
                             return score != null ? (
-                                <span className="px-3 py-1 rounded-full text-sm font-bold bg-slate-100 text-slate-800">
+                                <span className="whitespace-nowrap px-3 py-1 rounded-full text-sm font-bold bg-slate-100 text-slate-800">
                                     Overall score: {score}
                                 </span>
                             ) : null;
                         })()}
-                        <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-semibold capitalize">
+                        <span className="whitespace-nowrap px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-sm font-semibold capitalize">
                             {riskCase.status}
                         </span>
                         {typeof riskCase.iteration_count === 'number' && riskCase.iteration_count > 0 && (
-                            <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold">
+                            <span className="whitespace-nowrap px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-xs font-semibold">
                                 Replanning requested · iteration {riskCase.iteration_count}
                             </span>
                         )}
                         {riskCase.status === 'replanning_after_execution' && (
-                            <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold">
+                            <span className="whitespace-nowrap px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold">
                                 Revision after execution
                             </span>
                         )}
                         {riskCase.status === 'open' && (
-                                <button
-                                    type="button"
-                                    onClick={handleCloseCase}
-                                    disabled={closing}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
-                                    title="Close this case (sets status to abandoned)"
-                                >
-                                    <XCircle size={16} /> {closing ? 'Closing…' : 'Close case'}
-                                </button>
-                            )}
+                            <button
+                                type="button"
+                                onClick={handleCloseCase}
+                                disabled={closing}
+                                className="whitespace-nowrap flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
+                                title="Close this case (sets status to abandoned)"
+                            >
+                                <XCircle size={16} /> {closing ? 'Closing…' : 'Close case'}
+                            </button>
+                        )}
                     </div>
                 </div>
 

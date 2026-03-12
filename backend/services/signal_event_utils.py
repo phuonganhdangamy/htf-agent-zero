@@ -3,14 +3,14 @@ Shared helpers for signal_events. Ensures start_date is set when perception laye
 """
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 # Keys to check for event date (in order of preference)
 _DATE_KEYS = ("start_date", "date", "event_date", "published", "pub_date", "pubDate", "updated", "created_at")
 
 
-def _parse_date(value: Any) -> str | None:
+def _parse_date(value: Any) -> Optional[str]:
     """Parse a date value to ISO 8601 string for Postgres timestamptz. Returns None if unparseable."""
     if value is None:
         return None

@@ -95,33 +95,33 @@ export default function EventsFeed() {
                         {events.length === 0 ? 'No recent events found.' : `No events match "${search.trim()}".`}
                     </div>
                 ) : (
-                    <table className="w-full text-left text-sm whitespace-nowrap">
+                    <table className="w-full text-left text-sm">
                         <thead className="bg-slate-50/50 text-slate-500 uppercase tracking-wider text-xs border-b border-slate-200">
                             <tr>
-                                <th className="px-6 py-4 font-medium">event_id</th>
-                                <th className="px-6 py-4 font-medium">event_type</th>
-                                <th className="px-6 py-4 font-medium">country</th>
-                                <th className="px-6 py-4 font-medium">subtype</th>
-                                <th className="px-6 py-4 font-medium">confidence_score</th>
+                                <th className="px-4 py-3 font-medium">event_id</th>
+                                <th className="px-3 py-3 font-medium">event_type</th>
+                                <th className="px-3 py-3 font-medium">country</th>
+                                <th className="px-3 py-3 font-medium">subtype</th>
+                                <th className="px-3 py-3 font-medium">confidence_score</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {filteredEvents.map((ev: any) => (
                                 <tr key={ev.id} className="hover:bg-slate-50/50 transition-colors">
-                                    <td className="px-6 py-4 font-mono text-xs">{ev.event_id || '—'}</td>
-                                    <td className="px-6 py-4">
+                                    <td className="px-4 py-3 font-mono text-xs">{ev.event_id || '—'}</td>
+                                    <td className="px-3 py-3">
                                         <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded text-xs font-medium">
                                             {ev.event_type || '—'}
                                         </span>
                                     </td>
-                                    <td className="px-6 py-4">
+                                    <td className="px-3 py-3">
                                         <div className="flex items-center gap-1.5 text-slate-600">
                                             <Globe size={14} className="opacity-70" />
                                             {canonicalCountry(ev.country) || '—'}
                                         </div>
                                     </td>
-                                    <td className="px-6 py-4 text-slate-600">{ev.subtype || '—'}</td>
-                                    <td className="px-6 py-4 font-mono text-xs">{ev.confidence_score != null ? Number(ev.confidence_score).toFixed(2) : '—'}</td>
+                                    <td className="px-3 py-3 text-slate-600">{ev.subtype || '—'}</td>
+                                    <td className="px-3 py-3 font-mono text-xs">{ev.confidence_score != null ? Number(ev.confidence_score).toFixed(2) : '—'}</td>
                                 </tr>
                             ))}
                         </tbody>
