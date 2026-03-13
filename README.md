@@ -6,7 +6,7 @@ Omni is the **1st Place Winner of Hack the Future 2026**.
 
 - **[Slides](https://www.canva.com/design/DAHDC18Is5w/UhMntz3J-j3On9lAgrAJBQ/view?utm_content=DAHDC18Is5w&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h1ff3cd6586)**
 - **[Demo Video](https://youtu.be/UNRQj5ybBGg)**
-* Note that this was th initial submission, and was iterated and improved on!
+* Note that this was the initial submission, and was iterated and improved on!
 ---
 
 ## Table of Contents
