@@ -61,6 +61,13 @@ def _run_pipeline_in_thread(company_id: str, trigger: str, context: dict):
     except Exception as e:
         print(f"[agent/run background] pipeline error: {e}")
     finally:
+        # Cancel pending tasks (e.g. Gemini client aclose) before closing to suppress RuntimeWarning
+        try:
+            pending = asyncio.all_tasks(loop)
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        except Exception:
+            pass
         loop.close()
 
 

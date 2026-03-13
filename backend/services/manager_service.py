@@ -73,8 +73,11 @@ async def run_with_manager(
         focus_countries = interpreted.get("focus_countries") or []
         focus_regions = interpreted.get("focus_regions") or []
 
-        # Run perception with manager-derived focus so we have relevant signals (not only hardcoded supplier countries)
-        if trigger_type == "user_scenario" and scenario_text:
+        # For user_scenario, skip real-time perception scan — it makes 6+ slow external API calls
+        # (GDACS, ACLED, GDELT, WTO, OpenWeather, Alpha Vantage, FRED) that block the pipeline.
+        # The background scheduler (every 15 min) keeps signal_events up to date.
+        # Only run perception for scheduled/alert triggers.
+        if trigger_type != "user_scenario" and scenario_text:
             try:
                 await run_perception_scan(
                     company_id=company_id,
@@ -160,14 +163,19 @@ async def run_perception_with_manager(
     
     # Check if recent perception data exists
     # Get supplier countries
-    supp_res = supabase.table("suppliers").select("country").execute()
+    import asyncio as _asyncio
+    supp_res = await _asyncio.to_thread(
+        lambda: supabase.table("suppliers").select("country").execute()
+    )
     countries = list({s["country"] for s in (supp_res.data or []) if s.get("country")})
-    
+
     # Check for recent signal_events (within 15 minutes)
     cutoff_time = time.time() - (15 * 60)  # 15 minutes ago
     cutoff_str = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(cutoff_time))
-    
-    recent_res = supabase.table("signal_events").select("created_at").in_("country", countries[:10]).gte("created_at", cutoff_str).order("created_at", desc=True).limit(1).execute()
+
+    recent_res = await _asyncio.to_thread(
+        lambda: supabase.table("signal_events").select("created_at").in_("country", countries[:10]).gte("created_at", cutoff_str).order("created_at", desc=True).limit(1).execute()
+    )
     
     recent_check = {"has_recent": bool(recent_res.data), "latest": recent_res.data[0].get("created_at") if recent_res.data else None}
     
@@ -195,11 +203,13 @@ async def run_perception_with_manager(
     
     # Log decision
     try:
-        supabase.table("audit_log").insert({
-            "event_type": "manager_decision",
-            "actor": "OmniManager",
-            "payload": decision
-        }).execute()
+        await _asyncio.to_thread(
+            lambda: supabase.table("audit_log").insert({
+                "event_type": "manager_decision",
+                "actor": "OmniManager",
+                "payload": decision
+            }).execute()
+        )
     except Exception as e:
         print(f"Error logging manager decision: {e}")
     

@@ -42,7 +42,10 @@ If no geography is mentioned, return empty arrays for focus_countries and focus_
         response = client.models.generate_content(
             model="gemini-2.5-flash",
             contents=prompt,
-            config=types.GenerateContentConfig(response_mime_type="application/json"),
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                thinking_config=types.ThinkingConfig(thinking_budget=0),
+            ),
         )
         raw = (response.text or "").strip()
         if raw.startswith("```"):

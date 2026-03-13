@@ -36,16 +36,20 @@ def seed_memory_patterns():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    seed_memory_patterns()
+    async def _startup_tasks():
+        try:
+            await asyncio.to_thread(seed_memory_patterns)
+        except Exception as e:
+            print(f"[startup] seed_memory_patterns failed: {e}")
+        try:
+            from backend.services.monitoring_service import check_and_alert
+            company_id = os.environ.get("OMNI_COMPANY_ID", "ORG_DEMO")
+            result = await asyncio.to_thread(check_and_alert, company_id)
+            print(f"[startup] monitoring check: {result}")
+        except Exception as e:
+            print(f"[startup] monitoring check failed: {e}")
 
-    # Run initial monitoring check on startup (uses OMNI_COMPANY_ID)
-    try:
-        from backend.services.monitoring_service import check_and_alert
-        company_id = os.environ.get("OMNI_COMPANY_ID", "ORG_DEMO")
-        result = check_and_alert(company_id=company_id)
-        print(f"[startup] monitoring check: {result}")
-    except Exception as e:
-        print(f"[startup] monitoring check failed: {e}")
+    asyncio.create_task(_startup_tasks())
 
     # Start background perception polling via manager.
     # Uses manager_service.run_perception_with_manager, which already skips
@@ -57,6 +61,9 @@ async def lifespan(app: FastAPI):
             interval = int(os.environ.get("PERCEPTION_INTERVAL_SECONDS", "900"))
         except ValueError:
             interval = 900
+
+        # Wait for startup to complete before first run
+        await asyncio.sleep(10)
 
         while True:
             try:
