@@ -1,21 +1,193 @@
 # Omni: Autonomous Supply Chain Agent
 
-Omni is an agentic AI system designed to monitor global supply chain disruptions, assess risk from live operational data, and propose mitigation strategies with human-in-the-loop approval.
+Omni is an agentic AI system that monitors global supply chain disruptions, assesses risk from live operational data, and proposes mitigation strategies with human-in-the-loop approval. It acts as a **strategic operations partner** that perceives signals, reasons about trade-offs, plans responses, and assists in executing mitigation workflows.
 
-## Overview
+Omni is the **1st Place Winner of Hack the Future 2026**.
 
-Global supply chains are increasingly volatile due to geopolitical conflict, climate events, trade policy shifts, and supplier instability. Mid-market manufacturers are particularly vulnerable because they lack the dedicated risk intelligence teams, advanced analytics platforms, and supply chain control towers available to large enterprises.
+- **[Slides](https://www.canva.com/design/DAHDC18Is5w/UhMntz3J-j3On9lAgrAJBQ/view?utm_content=DAHDC18Is5w&utm_campaign=designshare&utm_medium=link2&utm_source=uniquelinks&utlId=h1ff3cd6586)**
+- **[Demo Video](https://youtu.be/UNRQj5ybBGg)**
+* Note that this was th initial submission, and was iterated and improved on!
+---
 
-This project implements an **Autonomous Supply Chain Resilience Agent** that acts as an intelligent operations co-pilot. The system continuously monitors global disruption signals, evaluates operational risk exposure, plans mitigation strategies, and proposes operational actions to maintain supply continuity.
+## Table of Contents
 
-Unlike traditional dashboards, the system behaves like a **strategic operations partner** that can perceive signals, reason about trade-offs, plan responses, and assist in executing mitigation workflows. 
+- [Overview & Objectives](#overview--objectives)
+- [Features at a Glance](#features-at-a-glance)
+- [Agent Architecture by Layer](#agent-architecture-by-layer)
+- [Orchestration & Memory](#orchestration--memory)
+- [Running the Application](#running-the-application)
+- [Customer Profiles](#customer-profiles)
+- [Risk Case Status & Closing](#risk-case-status--closing)
+- [Planned Work](#planned-work)
+- [Further Documentation](#further-documentation)
 
 ---
-## Running the Application Locally
 
-You need **two terminals**: backend (port 8000) and frontend. If **Run Cycle** or Chat shows `ERR_CONNECTION_REFUSED`, start the backend first.
+## Overview & Objectives
+
+Global supply chains are volatile due to geopolitical conflict, climate events, trade policy shifts, and supplier instability. Mid-market manufacturers often lack dedicated risk intelligence. Omni is designed to:
+
+- **Monitor** global disruption signals (news, events, weather, trade, macro)
+- **Assess** operational risk exposure across suppliers, logistics, and inventory
+- **Simulate** trade-offs between cost, service levels, and resilience
+- **Recommend** mitigation strategies (rerouting, alternative sourcing, buffer inventory)
+- **Draft or trigger** operational actions (supplier communication, ERP adjustments)
+- **Learn** from past disruptions to improve future recommendations
+
+The system is implemented as a **multi-agent pipeline** using **Google ADK**, with five layers: **Perception → Reasoning → Planning → Action → Reflection**, plus **Memory** and a central **Orchestrator (OmniManager)**.
+
+---
+
+## Features at a Glance
+
+### Frontend (React / Vite / Tailwind / TypeScript)
+
+| Tab / Route | Purpose |
+|-------------|---------|
+| **Dashboard** (`/`) | KPIs and fleet map placeholder; reads from Supabase (no hardcoded data). |
+| **Configuration** (`/config`) | Company profile (`memory_preferences`), Suppliers table + Add modal, Facilities table + Add modal. |
+| **Events Feed** (`/events`) | Disruption events from `signal_events`: event_id, type, country, subtype, confidence, start_date, evidence link. |
+| **Risk Cases** (`/cases`) | Table from `risk_cases`; expand inline for scores, hypotheses, plans, execution steps, audit trail. Data via Supabase or `GET /api/agent/cases` fallback. |
+| **Actions** (`/actions`) | Pending change proposals from `change_proposals`; approve/reject; view step-by-step execution and draft artifacts (email/ERP/Slack). |
+| **Activity Log** (`/logs`) | `audit_log` table; auto-refresh 30s; case_id links to risk case. |
+| **Live Simulation** (`/simulation`) | Scenario input, severity/urgency sliders, **Run Cycle** → real LLM risk assessment; execution log, risk case output, approval bar, Save as Risk Case. |
+| **Chatbot** (`/agent`) | Retrieval assistant: internal data + optional commodity prices (Alpha Vantage) + Google Search grounding; `POST /api/chat`. |
+
+### Backend (Python / FastAPI)
+
+| Route / Feature | Purpose |
+|-----------------|---------|
+| `POST /api/agent/run` | Fetches live Supabase data, calls Gemini for RiskCase JSON, saves to `risk_cases`, creates `action_runs` and `change_proposals`. |
+| `GET /api/agent/cases`, `GET /api/agent/cases/{case_id}` | List or fetch risk cases (optional status, limit, order). |
+| `POST /api/agent/approve` | Approve/reject change proposal; advance action run; write to `audit_log`. |
+| `POST /api/chat` | Chat with context (Supabase + optional Alpha Vantage + Google Search). |
+| `POST /api/risk_cases` | Insert risk case; returns `{ case_id }`. |
+| `POST /api/monitoring/scan` | On-demand perception scan: fetches from **real APIs** (GDACS, ACLED, GDELT, WTO, OpenWeather, Alpha Vantage, FRED), normalizes into `signal_events`, saves and auto-escalates high-confidence events. |
+| **Background** | Seeds `memory_patterns` (e.g. Taiwan Strait) if missing; **perception scheduler** calls `run_perception_with_manager` every `PERCEPTION_INTERVAL_SECONDS` (default 900s) for `OMNI_COMPANY_ID`. |
+
+### Database (Supabase / PostgreSQL)
+
+- **Schema**: `database/schema.sql` — `company_profiles`, `suppliers`, `facilities`, `inventory`, `purchase_orders`, `signal_events`, `risk_cases`, `action_runs`, `change_proposals`, `audit_log`, `memory_preferences`, `memory_patterns`, `draft_artifacts`, `manager_sessions`, etc.
+- **Seed**: `database/seed.sql` — **ORG_DEMO** (general electronics) and **ORG_TW_DEMO** (Taiwan-focused manufacturer).
+
+### Planning: Optimization Engine
+
+- Pure-Python **Optimization Engine** ranks candidate mitigation plans by `feasibility_score` using expected risk reduction, cost, loss prevented, and confidence.
+- Execution Planner uses this tool to select the recommended plan and store **ranked alternative plans** on each `risk_cases` row.
+
+---
+
+## Agent Architecture by Layer
+
+The pipeline is **Perception → Reasoning → Planning → Action → Reflection**. Each layer is implemented in `agents/`; the **root agent** (`agents/root_agent.py`) chains all five. Below are the **actual agents** as implemented in the codebase.
+
+### Layer 1 — Perception
+
+**Purpose:** Turn raw global signals into structured disruption events and persist them.
+
+| Agent | Type | Description |
+|-------|------|-------------|
+| **Normalizer Agent** | LLM Agent | Single agent in the perception pipeline. Calls external tools (GDACS, ACLED, Alpha Vantage, FRED, OpenWeather, WTO) using target countries from context; gathers disruption signals; parses them into a normalized list of **SignalEvent** objects matching the DB schema (event_id, title, summary, event_type, subtype, country, region, lat/lon, confidence_score, tone, risk_category, evidence_links, signal_sources, forecasted). Calls `save_signal_events` to store in the database. |
+
+**Perception tools (data sources):**
+
+- **GDACS** — Natural disaster alerts (earthquakes, cyclones, floods).
+- **ACLED** — Conflict and protest events.
+- **Alpha Vantage** — Financial/sector news (e.g. manufacturer sector).
+- **FRED** — Macro indicators (interest, inflation, GDP).
+- **OpenWeather** — Weather alerts for supplier regions/cities.
+- **WTO** — Trade restrictions by supplier countries.
+- **save_signal_events** — Writes normalized events to `signal_events` in Supabase.
+
+---
+
+### Layer 2 — Reasoning
+
+**Purpose:** Turn raw/clustered events and business context into a scored **RiskCase** (probability × exposure × impact).
+
+| Agent | Type | Description |
+|-------|------|-------------|
+| **Cluster Agent** | LLM Agent | Fuses incoming signal events; deduplicates into distinct **EventClusters** by geography, keywords, and time (e.g. typhoon in Taiwan + port delays in Kaohsiung → one cluster). Outputs cluster_id, event_ids, cluster_summary, cluster_geo, cluster_confidence. |
+| **Exposure Agent** | LLM Agent | Maps event clusters to business exposure (suppliers, routes, facilities, inventory). Uses Supply Chain Snapshot from context; computes **exposure_score** (0–1) from criticality, single-source status, inventory buffer days. Outputs ExposureReports (affected_assets, exposure_score, rationale). |
+| **Hypothesis Agent** | LLM Agent | Generates 1–3 **causal chain hypotheses** (e.g. “Port congestion at Kaohsiung will delay PO 8821 by 14 days → stockout in 4 days”). Assigns severity and probability per hypothesis; output as JSON. |
+| **Scoring Agent** | LLM Agent | Uses `read_risk_policy` to load `risk_policy.yaml` (severity models, geo impact, risk_model weights, thresholds, source_trust, recency). Computes risk_score = P × E × I; compares to elevated/high/critical thresholds; builds final **RiskCase** JSON (case_id, cluster_id, risk_category, headline, scores, exposure, hypotheses, status='open'). |
+| **Persister Agent** | LLM Agent | Takes the RiskCase JSON from Scoring Agent and calls `save_risk_case` to persist to Supabase. |
+
+**Flow:** Cluster + Exposure run in **parallel** (ParallelAgent); then Hypothesis → Scoring → Persister run **sequentially**.
+
+**Config:** `agents/reasoning/risk_policy.yaml` — severity models (earthquake, cyclone, flood, conflict, trade, etc.), geo impact, risk_model weights, thresholds, source trust scores, recency half-life.
+
+---
+
+### Layer 3 — Planning
+
+**Purpose:** Generate and rank mitigation plans; pick recommended plan and execution steps.
+
+| Agent | Type | Description |
+|-------|------|-------------|
+| **Plan Generator** | LLM Agent | Reviews RiskCase; uses `get_action_library` to load `action_library.yaml`. Combines 1+ actions into 2–3 **candidate plans** (e.g. “Plan A: Expedite Air Freight”, “Plan B: Activate Backup Supplier”). Outputs plan_id, plan_type, steps, tradeoffs. |
+| **Scenario Simulator** | LLM Agent | For each candidate plan, predicts outcome: expected_risk_reduction, expected_cost, expected_loss_prevented, confidence. Outputs SimulationResult per plan. |
+| **Execution Planner** | LLM Agent | Receives candidate plans + SimulationResults; calls **optimize_plans_tool** (pure Python `optimization_engine.optimize_plans`) to rank by feasibility_score; selects top as **recommended_plan**, keeps rest as **alternative_plans**; breaks recommended into step-by-step execution plan; calls `save_plans` to store on the risk case in Supabase. |
+
+**Action library** (`agents/planning/action_library.yaml`): REROUTE_SHIPMENT, EXPEDITE_AIR_FREIGHT, ACTIVATE_BACKUP_SUPPLIER, INCREASE_SAFETY_STOCK, REALLOCATE_INVENTORY, ADJUST_PRODUCTION_SCHEDULE, DUAL_SOURCE_SUPPLIER, SUBSTITUTE_MATERIAL — each with category, prerequisites, cost multiplier, expected risk reduction.
+
+**Optimization formula:** `feasibility_score = (loss_prevented * (1 + risk_reduction) * confidence) / (cost + 1)`; plans sorted descending.
+
+---
+
+### Layer 4 — Action
+
+**Purpose:** Turn the execution plan into change proposals and drafts; gate on human approval; commit, verify, and audit.
+
+| Agent | Type | Description |
+|-------|------|-------------|
+| **Change Proposal Agent** | LLM Agent | Translates finalized execution plan into an **ERP diff**: which entities change (PurchaseOrder, Inventory, Supplier), before/after state. Outputs ChangeProposal schema (proposal_id, action_run_id, system, entity_type, entity_id, diff, status='pending'). Calls `save_change_proposal`. |
+| **Drafting Agent** | LLM Agent | Drafts human-readable messages (e.g. supplier email) from Execution Plan and Change Proposal. Does not expose internal cost/loss metrics; tone factual and professional. Outputs DraftArtifact (type=email, preview, structured_payload: to/subject/body). Calls `save_draft_artifact`; draft attached to action run step for “View Draft” in UI. |
+| **Approval Agent** | LLM Agent | Human-in-the-loop gate. Uses `poll_for_approval(proposal_id)` to wait for human approve/reject in UI. On approval, passes authorization to Commit Agent; on reject/timeout, aborts and reports failure. |
+| **Commit Agent** | LLM Agent | Only runs after approval. Extracts diff from Change Proposal; calls `execute_erp_commit` to push changes to backend ERP APIs (e.g. PUT purchase-orders); calls `report_step_complete` for action run steps. |
+| **Verification Agent** | LLM Agent | Post-commit: fetches expected state from proposal and actual state via `verify_erp_state` (GET from ERP); compares; outputs Verification Report; updates step status. |
+| **Audit Agent** | LLM Agent | Records outcome in `audit_log` via `write_audit_log` (case_id, action_run_id, actor, event_type, payload). Outputs Audit Summary. |
+
+**Order in pipeline:** Change Proposal → Drafting → Approval → Commit → Verification → Audit.
+
+---
+
+### Layer 5 — Reflection
+
+**Purpose:** Compare predicted vs actual outcomes and update organizational memory.
+
+| Agent | Type | Description |
+|-------|------|-------------|
+| **Outcome Evaluator** | LLM Agent | Receives case_id and outcome context; calls `evaluate_outcome(case_id)` to compare predicted vs actual risk reduction (from risk_cases and audit). Outputs Outcome Evaluation JSON. |
+| **Lesson Extractor** | LLM Agent | Reads Outcome Evaluation; extracts **generalized lessons** or policy recommendations (e.g. “Air freight from Taiwan 10% less effective during typhoons”). Calls `update_memory_from_lesson` to record in system memory (pattern_id, insight, confidence_adj). Outputs extracted lesson JSON. |
+
+---
+
+## Orchestration & Memory
+
+### OmniManager (Orchestrator)
+
+- **Location:** `agents/manager/omni_manager.py`. Not user-facing; coordinates all agents and layers.
+- **Responsibilities:** Routing (which agents to run for a given trigger); failure handling (log, retry with reduced scope, don’t crash pipeline); quality checks on outputs (e.g. RiskCase fields, score 0–100); cost optimization (reuse perception when fresh, bias planning from high-confidence memory patterns); proactive triggers (e.g. low inventory, stale risk cases, unverified actions); **session narrative** for “what has Omni done today?” (used by chatbot).
+- **Session tracker** (`session_tracker.py`): Tracks pipeline runs, cases created, actions approved/pending, agents invoked, warnings; writes to `manager_sessions`; generates session summary for chat.
+- **Health monitor** (`health_monitor.py`): Runs health checks (perception freshness, stalled cases, expired proposals, agent failures, Gemini connectivity); writes to `audit_log` with `event_type="health_check"`; auto-escalates expired proposals. On-demand: `GET /api/monitoring/health/agents` (or equivalent).
+
+**Perception with manager:** Background scheduler in `backend/main.py` calls `run_perception_with_manager(company_id)` every `PERCEPTION_INTERVAL_SECONDS`; skips when recent perception data exists.
+
+### Memory
+
+- **Preference memory** (`memory/preference_memory.py`): Org config from `memory_preferences` (risk appetite, cost cap, fill-rate target, notification threshold, etc.).
+- **Pattern memory** (`memory/pattern_memory.py`, `memory_store.py`): Situational patterns from `memory_patterns` (trigger conditions, recommended/avoid actions, confidence). Used to hint the planner; updated by reflection (`update_from_reflection`).
+- **Entity memory** (`memory/entity_memory.py`): Supplier/route reliability stats from `memory_entities`.
+
+---
+
+## Running the Application
+
+Use **two terminals**: backend (port 8000) and frontend. If Run Cycle or Chat shows `ERR_CONNECTION_REFUSED`, start the backend first.
 
 **Backend (Terminal 1):**
+
 ```bash
 # From repo root
 python -m venv venv
@@ -24,119 +196,64 @@ python -m venv venv
 pip install -r requirements.txt
 python -m uvicorn backend.main:app --reload --port 8000
 ```
-Leave running. Optional in `.env`: `GOOGLE_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (or `SUPABASE_ANON_KEY`), `ALPHA_VANTAGE_API_KEY`, `OMNI_COMPANY_ID` (default `ORG_DEMO`; use `ORG_TW_DEMO` for Taiwan profile).
+
+Optional in `.env`: `GOOGLE_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (or `SUPABASE_ANON_KEY`), `ALPHA_VANTAGE_API_KEY`, `OMNI_COMPANY_ID` (default `ORG_DEMO`; use `ORG_TW_DEMO` for Taiwan profile).
 
 **Frontend (Terminal 2):**
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
+
 Set `frontend/.env`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`. Optional: `VITE_API_URL=http://localhost:8000`.
 
-**Switching to the Taiwan customer profile (ORG_TW_DEMO)**  
-- Backend: set `OMNI_COMPANY_ID=ORG_TW_DEMO` in `.env` (perception scheduler and startup monitoring use this).  
-- Frontend: set `VITE_DEFAULT_COMPANY_ID=ORG_TW_DEMO` in `frontend/.env` so Dashboard, Configuration, Live Simulation, and Chat use that org.  
-- Ensure the Taiwan profile is seeded in Supabase (run the second part of `database/seed.sql` or use the data you added manually).
+**Taiwan customer profile:** Backend: `OMNI_COMPANY_ID=ORG_TW_DEMO`; Frontend: `VITE_DEFAULT_COMPANY_ID=ORG_TW_DEMO`. Ensure Taiwan profile is seeded (second part of `database/seed.sql`).
 
 ---
-## Tech Stack
-### Frontend (React / Vite + Tailwind + TypeScript)
 
-- **Location**: `/frontend`
-- **Data**: Reads from Supabase (and backend API fallback where needed). No hardcoded data in UI.
-- **Tabs**:
-  - **Dashboard** (`/`) — KPIs and fleet map placeholder
-  - **Configuration** (`/config`) — Company profile (memory_preferences), Suppliers table + Add modal, Facilities table + Add modal
-  - **Events Feed** (`/events`) — `signal_events` table (event_id, event_type, country, subtype, confidence_score, start_date, evidence link)
-  - **Risk Cases** (`/cases`) — Table from `risk_cases`; expand inline for scores, hypotheses, plans, execution steps, audit trail. Fetches via Supabase or `GET /api/agent/cases` fallback
-  - **Actions** (`/actions`) — Pending change proposals from `change_proposals`; approve/reject
-  - **Activity Log** (`/logs`) — `audit_log` table; auto-refresh 30s; case_id links to risk case
-  - **Live Simulation** (`/simulation`) — Operational scenario input, severity/urgency sliders, **Run Cycle** → real LLM risk assessment; execution log, risk case output, approval bar, Save as Risk Case
-  - **Chatbot** (`/agent`) — Retrieval assistant: internal data + optional commodity prices + Google Search grounding; `POST /api/chat`
+## Customer Profiles
 
-### Backend (Python / FastAPI)
+### ORG_DEMO
 
-- **Location**: `/backend`; entry point `backend/main.py`, runs on `localhost:8000`
-- **Key routes**:
-  - `POST /api/agent/run` — Fetches live Supabase data, calls Gemini for RiskCase JSON, saves to `risk_cases`, creates `action_runs` + `change_proposals` (no mock data)
-  - `GET /api/agent/cases` — List risk cases (optional status, limit, order)
-  - `GET /api/agent/cases/{case_id}` — Fetch a single case by `case_id` (or underlying `id` as fallback)
-  - `POST /api/agent/approve` — Approve/reject change proposal and advance the action run
-  - `POST /api/chat` — Chat with context (Supabase + optional Alpha Vantage commodity prices + Google Search grounding)
-  - `POST /api/risk_cases` — Insert risk case; returns `{ case_id }`
-  - `POST /api/monitoring/scan` — On-demand perception scan: **fetches from real APIs** — GDACS, ACLED, GDELT, WTO (by supplier countries); OpenWeather (weather at supplier regions/cities); Alpha Vantage (news for manufacturer sector, from materials/industry); FRED (macro: interest, inflation, GDP). LLM normalizes raw data into `signal_events` (no invented events). Saves and auto‑escalates high‑confidence ones.
-- **Startup / background jobs**:
-  - Seeds `memory_patterns` with default Taiwan Strait pattern if missing
-  - Starts a **background perception scheduler** that calls `run_perception_with_manager` every `PERCEPTION_INTERVAL_SECONDS` (default 900s) for `OMNI_COMPANY_ID` (default `ORG_DEMO`), skipping runs when recent perception data exists
-- **Agent modules** (`/agents`):
-  - ADK pipeline (perception, reasoning, planning, action, reflection) is implemented.
-  - **Planning layer** now exposes a pure‑Python **Optimization Engine** that ranks candidate mitigation plans by `feasibility_score` using expected risk reduction, cost, loss prevented, and confidence.
-  - Execution Planner uses this optimization tool to select the recommended plan and store **ranked alternative plans** on each `risk_cases` row.
+General electronics manufacturer (e.g. SUPP_044 Taiwan Semiconductor Corp), facilities in Germany, 7nm wafer / smartphone product.
 
-### Database (Supabase / PostgreSQL)
-
-- **Schema**: `/database/schema.sql` — `company_profiles`, `suppliers`, `facilities`, `inventory`, `purchase_orders`, `signal_events`, `risk_cases`, `action_runs`, `change_proposals`, `audit_log`, `memory_preferences`, `memory_patterns`, etc.
-- **Seed**: `/database/seed.sql` — Two customer profiles:
-  - **ORG_DEMO** — General electronics manufacturer (e.g. SUPP_044 Taiwan Semiconductor Corp), facilities in Germany, 7nm wafer / smartphone product.
-  - **ORG_TW_DEMO** — Taiwan-focused industrial electronics manufacturer; see **Customer profile** below.
-
-### Customer profile (Taiwan-focused demo)
-
-The **ORG_TW_DEMO** profile models a mid-market industrial electronics manufacturer ($150M revenue) whose critical supply runs through Taiwan. Use it for demos by setting `OMNI_COMPANY_ID=ORG_TW_DEMO` (backend) and `VITE_DEFAULT_COMPANY_ID=ORG_TW_DEMO` (frontend `.env`).
+### ORG_TW_DEMO (Taiwan-focused)
 
 | Entity | Details |
 |--------|--------|
 | **Company** | Industrial Electronics Manufacturing; products: Industrial Controllers, Edge Devices; risk appetite: medium. |
-| **Primary supplier** | **FormoChip Electronics** (SUPP_TW_001) — Taiwan, Kaohsiung; 7nm Control MCU Wafer + Underfill/Mold Compound; tier 1, single-source for key SKUs; 12-day lead time; backup option via Peninsula Semi. |
-| **Backup supplier** | **Peninsula Semi** (SUPP_MY_001) — Malaysia, Penang; same MCU wafer; higher cost, 16-day lead time; used for volume shift when Taiwan risk escalates. |
-| **Tier-2 supplier** | **Pacific Packaging Taichung** (SUPP_TW_002) — Taiwan, Taichung; Custom Molded Packaging Shell; 6-day lead time; shows indirect Taiwan exposure. |
+| **Primary supplier** | **FormoChip Electronics** (SUPP_TW_001) — Taiwan, Kaohsiung; 7nm Control MCU Wafer + Underfill/Mold Compound; tier 1, single-source; 12-day lead time; backup via Peninsula Semi. |
+| **Backup supplier** | **Peninsula Semi** (SUPP_MY_001) — Malaysia, Penang; same MCU wafer; higher cost, 16-day lead time. |
+| **Tier-2** | **Pacific Packaging Taichung** (SUPP_TW_002) — Taiwan, Taichung; Custom Molded Packaging Shell; 6-day lead time. |
 | **Facilities** | Assembly + DC in Germany (FAC_EU_TW_01, DC_EU_TW_01); product: Edge Control Unit Z7. |
 | **Routes** | Sea: Kaohsiung → Rotterdam; Air: Kaohsiung → Frankfurt; Taichung → Hamburg. |
 
+---
 
-### Risk case status and closing
+## Risk Case Status & Closing
 
-- **Open risk case** — A risk case with `status = 'open'`. New cases are created with this status; it means the case is still active (e.g. awaiting decisions, in progress, or from simulation/test). Dashboard KPIs such as “Active Risk Cases” and “Expected loss prevented” count only **open** cases.
-- **Closed** — The case is no longer active but is kept for reference. Status is set to `closed` in two situations:
-  1. **User rejects the proposal** on the Actions tab — the linked risk case is automatically set to `closed`. The case stays in the Risk Cases list for future reference.
-  2. **User clicks “Close case”** on Risk Cases or Case Detail — the backend sets status to `closed`, marks any pending proposals for that case as rejected, and writes an audit event (`POST /api/agent/abandon`). The case remains in the list.
-- So risk case status is aligned with actions: reject action → case closed; explicit close → case closed. Only **open** cases are included in dashboard counts.
+- **Open:** `status = 'open'`. New cases start open; dashboard KPIs (e.g. Active Risk Cases, Expected loss prevented) count only open cases.
+- **Closed:** Set when (1) user **rejects** the proposal on the Actions tab — linked risk case set to `closed`; or (2) user clicks **Close case** — backend sets status to `closed`, marks pending proposals rejected, writes audit event (`POST /api/agent/abandon`). Closed cases remain in the list for reference.
 
----------------------------------------------------------------------
+---
 
-## Core Objectives
+## Planned Work
 
-The system is designed to:
+1. **End-to-end action execution** — Wire Commit → Verification → Audit so approved proposals trigger real/simulated ERP commit, verification, and full audit trace.
+2. **Draft emails / notifications UI** — Extend “View Draft” to edit, save, and view iteration history for email/Slack drafts.
+3. **Real Emailing Agent** — Send approved email drafts via SMTP/API (e.g. SendGrid) with sandbox/test inbox and environment safeguards.
+4. **Ping / user notifications** — Notify users when high-severity risk cases are created or proposals are pending (email, in-app, webhook).
+5. **Full ADK pipeline for batch runs** — Use manager + ADK root agent for scheduled runs so Perception → Reflection run with shared context.
+6. **Configurable optimization policy** — Expose Optimization Engine weights and constraints via `memory_preferences`.
+7. **Tool usage in agents** — Ensure agents consistently call save tools and planning/ERP stubs in full ADK runs; log decisions to `audit_log`.
 
-• Monitor global disruption signals (news, geopolitical events, natural disasters, logistics disruptions)  
-• Assess operational risk exposure across suppliers, logistics, and inventory  
-• Simulate trade-offs between cost, service levels, and resilience  
-• Recommend mitigation strategies such as rerouting, alternative sourcing, or buffer inventory  
-• Draft or trigger operational actions including supplier communication or ERP adjustments  
-• Learn from previous disruptions to improve future recommendations  
+---
 
-These capabilities align with the goal of creating a proactive AI system that detects early warning signals and initiates mitigation workflows automatically. 
+## Further Documentation
 
----------------------------------------------------------------------
-
-## Agent Architecture Mapping
-
-The system is implemented as a **multi-agent pipeline** orchestrated using Google ADK.  
-Each layer contains specialized agents responsible for a well-defined step in the supply chain risk analysis workflow.
-
-Architecture Flow
-
-External Signals  
-        ↓
-Perception Layer  
-        ↓
-Reasoning Layer  
-        ↓
-Planning Layer  
-        ↓
-Action Layer  
-        ↓
-Reflection + Memory
-
----------------------------------------------------------------------
+- **Architecture:** `docs/architecture.md` — pipeline status, what’s implemented vs planned, agent responsibilities.
+- **UI mapping:** `docs/ui-mapping.md` — Frontend tabs → Supabase tables and API routes.
+- **Implementation flow:** `docs/implementation-flow.md` — Users → Frontend → Backend → Database → Gemini/ADK; clarifies Gemini (LLM) vs ADK (agent framework).
+- **Manager:** `agents/manager/README.md` — OmniManager, session tracker, health monitor, DB and integration points.
